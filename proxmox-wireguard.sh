@@ -44,9 +44,16 @@ EOF
 
 msg_ok "docker-compose.yml generado correctamente."
 
-# === Ejecutar WG-Easy ===
+# === Ejecutar WG-Easy (con compatibilidad para V1 y V2) ===
 msg_info "Lanzando WG-Easy con Docker Compose..."
-docker compose up -d
+if command -v docker-compose &>/dev/null; then
+    docker-compose up -d    # V1 (formato tradicional)
+elif docker compose version &>/dev/null; then
+    docker compose up -d    # V2 (nuevo formato integrado)
+else
+    msg_error "No se encontró docker-compose instalado. Instálalo primero."
+    exit 1
+fi
 
 # === Mostrar acceso final ===
 CONTAINER_IP=$(hostname -I | awk '{print $1}')
