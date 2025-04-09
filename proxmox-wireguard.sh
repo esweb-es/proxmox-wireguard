@@ -26,10 +26,10 @@ WG_PORT=${WG_PORT:-51821}
 read -rsp "🔒 Contraseña para la interfaz web: " WG_PASSWORD
 echo
 
-read -rp "📛 Nombre del servidor LXC [Wireguard]: " WG_HOSTNAME
+read -rp "📛 Nombre del contenedor LXC [Wireguard]: " WG_HOSTNAME
 WG_HOSTNAME=${WG_HOSTNAME:-Wireguard}
 
-read -rp "🔧 Dominio o IP pública para WG_HOST (deja vacío para detectarlo): " CUSTOM_WG_HOST
+read -rp "🔧 Dominio o IP pública para WG_HOST (deja vacío para detectar la ip pública): " CUSTOM_WG_HOST
 WG_HOST=${CUSTOM_WG_HOST:-auto}
 
 read -rsp "🔐 Contraseña para el usuario root del contenedor: " ROOT_PASSWORD
@@ -73,24 +73,22 @@ pct exec $CTID -- bash -c "
   install -m 0755 -d /etc/apt/keyrings
   curl -fsSL https://download.docker.com/linux/debian/gpg | \
     gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-  echo \
-    \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-    https://download.docker.com/linux/debian \$(lsb_release -cs) stable\" | \
-    tee /etc/apt/sources.list.d/docker.list > /dev/null
+  echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+    https://download.docker.com/linux/debian \$(lsb_release -cs) stable\" > /etc/apt/sources.list.d/docker.list
   apt-get update
   apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 "
 
 # ========================
-# Generar PASSWORD_HASH usando la imagen de wg-easy
+# Generar PASSWORD_HASH usando Docker dentro del contenedor
 # ========================
-msg_info "Generando PASSWORD_HASH utilizando la imagen de wg-easy..."
-HASH=$(docker run --rm ghcr.io/wg-easy/wg-easy /app/bin/bcrypt-tool hash "${WG_PASSWORD}" | tail -n 1)
+msg_info "Generando PASSWORD_HASH desde el contenedor..."
+HASH=$(pct exec $CTID -- docker run --rm ghcr.io/wg-easy/wg-easy /app/bin/bcrypt-tool hash "${WG_PASSWORD}" | tail -n 1)
 
 # ========================
 # Crear docker-compose.yml
 # ========================
-msg_info "Creando docker-compose.yml con hash seguro..."
+msg_info "Creando docker-compose.yml con el hash generado..."
 pct exec $CTID -- bash -c "
   mkdir -p /opt/wg-easy && cd /opt/wg-easy
   cat <<EOF > docker-compose.yml
