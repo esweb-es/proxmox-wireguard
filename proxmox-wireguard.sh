@@ -19,17 +19,17 @@ CTID=$(pvesh get /cluster/nextid)
 # ========================
 # Preguntas al usuario
 # ========================
-echo "⚙️  Configuración de Wireguard:"
+echo "⚙️  Configuración de WG-Easy:"
 read -rp "🌍 Puerto para la interfaz web [51821]: " WG_PORT
 WG_PORT=${WG_PORT:-51821}
 
-read -rsp "🔒 Contraseña para la interfaz web: " WG_PASSWORD
+read -rsp "🔒 Contraseña para el panel: " WG_PASSWORD
 echo
 
-read -rp "📛 Nombre del contenedor LXC [Wireguard]: " WG_HOSTNAME
-WG_HOSTNAME=${WG_HOSTNAME:-Wireguard}
+read -rp "📛 Nombre del servidor LXC [wg-easy]: " WG_HOSTNAME
+WG_HOSTNAME=${WG_HOSTNAME:-wg-easy}
 
-read -rp "🔧 Dominio o IP pública para WG_HOST (deja vacío para detectar la ip pública): " CUSTOM_WG_HOST
+read -rp "🔧 Dominio o IP pública para WG_HOST (deja vacío para auto): " CUSTOM_WG_HOST
 WG_HOST=${CUSTOM_WG_HOST:-auto}
 
 read -rsp "🔐 Contraseña para el usuario root del contenedor: " ROOT_PASSWORD
@@ -79,11 +79,14 @@ pct exec $CTID -- bash -c "
   apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 "
 
+# Esperar unos segundos para que docker esté disponible
+sleep 3
+
 # ========================
 # Generar PASSWORD_HASH usando Docker dentro del contenedor
 # ========================
 msg_info "Generando PASSWORD_HASH desde el contenedor..."
-HASH=$(pct exec $CTID -- docker run --rm ghcr.io/wg-easy/wg-easy /app/bin/bcrypt-tool hash "${WG_PASSWORD}" | tail -n 1)
+HASH=$(pct exec $CTID -- bash -c "docker run --rm ghcr.io/wg-easy/wg-easy /app/bin/bcrypt-tool hash '${WG_PASSWORD}'" | tail -n 1)
 
 # ========================
 # Crear docker-compose.yml
