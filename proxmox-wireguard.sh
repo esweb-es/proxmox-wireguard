@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# === Funciones de salida colorida ===
+# === Funciones de salida ===
 msg_ok()    { echo -e "\e[32m[✔]\e[0m $1"; }
 msg_info()  { echo -e "\e[34m[➤]\e[0m $1"; }
 msg_error() { echo -e "\e[31m[✘]\e[0m $1"; }
 trap 'msg_error "Ocurrió un error en la línea $LINENO."' ERR
 
-# === Preguntas al usuario ===
-read -rp "🌍 Dominio o IP pública para WG_HOST (ej: vpn.midominio.com): " WG_HOST
-read -rsp "🔐 Contraseña para acceder al panel (PASSWORD): " WG_PASSWORD
+# === Preguntar al usuario ===
+read -rp "🌍 Dominio o IP pública para WG_HOST (ej: vpn.tudominio.com): " WG_HOST
+read -rsp "🔐 Contraseña para el panel web: " WG_PASSWORD
 echo
 
-# === Crear carpeta y archivo docker-compose.yml ===
-msg_info "Creando estructura en /opt/wg-easy..."
+# === Crear estructura ===
+msg_info "Creando carpeta /opt/wg-easy y archivo docker-compose.yml..."
 mkdir -p /opt/wg-easy
 cd /opt/wg-easy
 
@@ -42,13 +42,13 @@ services:
       - net.ipv4.conf.all.src_valid_mark=1
 EOF
 
-msg_ok "Archivo docker-compose.yml generado."
+msg_ok "docker-compose.yml generado correctamente."
 
-# === Lanzar el contenedor ===
-msg_info "Iniciando contenedor wg-easy..."
+# === Ejecutar WG-Easy ===
+msg_info "Lanzando WG-Easy con Docker Compose..."
 docker compose up -d
 
-# === Mostrar IP del contenedor ===
+# === Mostrar acceso final ===
 CONTAINER_IP=$(hostname -I | awk '{print $1}')
-msg_ok "WG-Easy desplegado correctamente 🎉"
-msg_info "🌐 Accede al panel en: http://${CONTAINER_IP}:51821"
+msg_ok "WG-Easy está en marcha 🚀"
+msg_info "🌐 Accedé al panel en: http://${CONTAINER_IP}:51821"
