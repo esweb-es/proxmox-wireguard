@@ -12,7 +12,7 @@ trap 'msg_error "Se produjo un error en la línea $LINENO"' ERR
 # ========================
 # Parámetros iniciales
 # ========================
-APP="WG-Easy Oficial"
+APP="WG-Easy Oficial (con PASSWORD_HASH)"
 TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
 STORAGE="local"
 CTID=$(pvesh get /cluster/nextid)
@@ -24,7 +24,9 @@ echo "⚙️  Configuración de WG-Easy:"
 read -rp "🌍 Puerto para la interfaz web [51821]: " WG_PORT
 WG_PORT=${WG_PORT:-51821}
 
-read -rp "🔒 Contraseña para el panel de administración: " WG_PASSWORD
+read -rsp "🔒 Contraseña para el panel (se convertirá a HASH bcrypt): " WG_PASSWORD
+echo
+
 read -rp "📛 Nombre del servidor LXC [wg-easy]: " WG_HOSTNAME
 WG_HOSTNAME=${WG_HOSTNAME:-wg-easy}
 
@@ -36,7 +38,7 @@ read -rsp "🔐 Contraseña para el usuario root del contenedor: " ROOT_PASSWORD
 echo
 
 # ========================
-# Verificar y descargar plantilla
+# Verificar plantilla
 # ========================
 if [[ ! -f "/var/lib/vz/template/cache/${TEMPLATE}" ]]; then
   msg_info "Descargando plantilla Debian 12..."
@@ -45,7 +47,7 @@ if [[ ! -f "/var/lib/vz/template/cache/${TEMPLATE}" ]]; then
 fi
 
 # ========================
-# Crear y configurar el contenedor
+# Crear contenedor
 # ========================
 msg_info "Creando contenedor LXC #${CTID}..."
 pct create $CTID ${STORAGE}:vztmpl/${TEMPLATE} \
@@ -63,13 +65,14 @@ sleep 5
 pct exec $CTID -- bash -c "echo 'root:${ROOT_PASSWORD}' | chpasswd"
 
 # ========================
-# Instalar Docker dentro del contenedor
+# Instalar Docker y Node.js
 # ========================
-msg_info "Instalando Docker en el contenedor..."
+msg_info "Instalando Docker y Node.js..."
 pct exec $CTID -- bash -c "
   apt-get update && apt-get install -y \
     ca-certificates curl gnupg lsb-release \
-    apt-transport-https software-properties-common
+    apt-transport-https software-properties-common \
+    nodejs npm
   install -m 0755 -d /etc/apt/keyrings
   curl -fsSL https://download.docker.com/linux/debian/gpg | \
     gpg --dearmor -o /etc/apt/keyrings/docker.gpg
@@ -82,9 +85,15 @@ pct exec $CTID -- bash -c "
 "
 
 # ========================
-# Desplegar WG-Easy (imagen oficial)
+# Generar PASSWORD_HASH
 # ========================
-msg_info "Desplegando WG-Easy con Docker Compose..."
+msg_info "Generando HASH bcrypt seguro..."
+HASH=$(pct exec $CTID -- bash -c "node -e \"console.log(require('bcryptjs').hashSync('${WG_PASSWORD}', 10))\"" )
+
+# ========================
+# Crear docker-compose.yml
+# ========================
+msg_info "Creando docker-compose.yml con hash seguro..."
 pct exec $CTID -- bash -c "
   mkdir -p /opt/wg-easy && cd /opt/wg-easy
   cat <<EOF > docker-compose.yml
@@ -94,7 +103,7 @@ services:
     image: ghcr.io/wg-easy/wg-easy
     container_name: wg-easy
     environment:
-      - PASSWORD=${WG_PASSWORD}
+      - PASSWORD_HASH=${HASH}
       - WG_HOST=${WG_HOST}
     ports:
       - '${WG_PORT}:51821/tcp'
@@ -112,6 +121,9 @@ EOF
   docker compose up -d
 "
 
-msg_ok "WG-Easy (imagen oficial) desplegado correctamente en el contenedor #$CTID 🎉"
-msg_info "🌐 Accede al panel: http://<IP_DEL_CONTENEDOR>:${WG_PORT}"
-msg_info "🔐 Contraseña de acceso: ${WG_PASSWORD}"
+# ========================
+# Mostrar IP y finalizar
+# ========================
+CONTAINER_IP=$(pct exec $CTID -- hostname -I | awk '{print $1}')
+msg_ok "WG-Easy desplegado correctamente en el contenedor #$CTID 🎉"
+msg_info "🌐 Accede al panel: http://${CONTAINER_IP}:${WG_PORT}"
