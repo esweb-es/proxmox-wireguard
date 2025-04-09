@@ -10,19 +10,6 @@ msg_error()  { echo -e "\e[31m[ERROR]\e[0m $1"; }
 trap 'msg_error "Se produjo un error en la línea $LINENO"' ERR
 
 # ========================
-# Validación de dependencias
-# ========================
-if ! command -v node &> /dev/null; then
-  msg_error "Node.js no está instalado en el nodo. Instálalo con: apt install nodejs npm"
-  exit 1
-fi
-
-if ! node -e "require('bcryptjs')" &> /dev/null; then
-  msg_info "Instalando bcryptjs localmente para generar el hash..."
-  npm install -g bcryptjs
-fi
-
-# ========================
 # Variables base
 # ========================
 TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
@@ -32,21 +19,17 @@ CTID=$(pvesh get /cluster/nextid)
 # ========================
 # Preguntas al usuario
 # ========================
-echo "⚙️  Configuración de WG-Easy:"
+echo "⚙️  Configuración de Wireguard:"
 read -rp "🌍 Puerto para la interfaz web [51821]: " WG_PORT
 WG_PORT=${WG_PORT:-51821}
 
-read -rsp "🔒 Contraseña para el panel (se convertirá a HASH bcrypt): " WG_PASSWORD
+read -rsp "🔒 Contraseña para la interfaz web: " WG_PASSWORD
 echo
 
-# Generar el hash en el nodo host
-HASH=$(node -e "console.log(require('bcryptjs').hashSync('${WG_PASSWORD}', 10))")
+read -rp "📛 Nombre del servidor LXC [Wireguard]: " WG_HOSTNAME
+WG_HOSTNAME=${WG_HOSTNAME:-Wireguard}
 
-read -rp "📛 Nombre del servidor LXC [wg-easy]: " WG_HOSTNAME
-WG_HOSTNAME=${WG_HOSTNAME:-wg-easy}
-
-echo "🌐 ¿Quieres usar detección automática de IP pública o un dominio personalizado?"
-read -rp "🔧 Ingresa dominio o IP pública (deja vacío para auto): " CUSTOM_WG_HOST
+read -rp "🔧 Dominio o IP pública para WG_HOST (deja vacío para detectarlo): " CUSTOM_WG_HOST
 WG_HOST=${CUSTOM_WG_HOST:-auto}
 
 read -rsp "🔐 Contraseña para el usuario root del contenedor: " ROOT_PASSWORD
@@ -97,6 +80,12 @@ pct exec $CTID -- bash -c "
   apt-get update
   apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 "
+
+# ========================
+# Generar PASSWORD_HASH usando la imagen de wg-easy
+# ========================
+msg_info "Generando PASSWORD_HASH utilizando la imagen de wg-easy..."
+HASH=$(docker run --rm ghcr.io/wg-easy/wg-easy /app/bin/bcrypt-tool hash "${WG_PASSWORD}" | tail -n 1)
 
 # ========================
 # Crear docker-compose.yml
