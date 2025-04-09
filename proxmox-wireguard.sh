@@ -1,159 +1,117 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 # ========================
 # Funciones internas
 # ========================
-
-msg_ok() {
-  echo -e "\e[32m[OK]\e[0m $1"
-}
-
-msg_info() {
-  echo -e "\e[34m[INFO]\e[0m $1"
-}
-
-msg_error() {
-  echo -e "\e[31m[ERROR]\e[0m $1"
-}
-
-catch_errors() {
-  msg_error "Se ha producido un error en la línea $1"
-  exit 1
-}
-
-trap 'catch_errors $LINENO' ERR
+msg_ok()     { echo -e "\e[32m[OK]\e[0m $1"; }
+msg_info()   { echo -e "\e[34m[INFO]\e[0m $1"; }
+msg_error()  { echo -e "\e[31m[ERROR]\e[0m $1"; }
+trap 'msg_error "Se produjo un error en la línea $LINENO"' ERR
 
 # ========================
-# Variables
+# Parámetros iniciales
 # ========================
-
-APP="WireGuard con interfaz UI"
-var_cpu="1"
-var_ram="512"
-var_disk="2"
-var_os="debian"
-var_version="12"
-var_unprivileged="1"
-DETECTED_STORAGE="local-lvm"
+APP="WG-Easy Oficial"
+TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
+STORAGE="local"
+CTID=$(pvesh get /cluster/nextid)
 
 # ========================
 # Preguntas al usuario
 # ========================
+echo "⚙️  Configuración de WG-Easy:"
+read -rp "🌍 Puerto para la interfaz web [51821]: " WG_PORT
+WG_PORT=${WG_PORT:-51821}
 
-read -rp "❓ ¿Quieres instalar WireGuard con interfaz UI? [s/n]: " INSTALL_WIREGUARD
-INSTALL_WIREGUARD=${INSTALL_WIREGUARD,,}
+read -rp "🔒 Contraseña para el panel de administración: " WG_PASSWORD
+read -rp "📛 Nombre del servidor LXC [wg-easy]: " WG_HOSTNAME
+WG_HOSTNAME=${WG_HOSTNAME:-wg-easy}
 
-if [[ "$INSTALL_WIREGUARD" == "s" ]]; then
-  read -rp "🧑‍💻 Usuario para WireGuard UI (admin): " WGUI_USERNAME
-  read -rsp "🔑 Contraseña para WireGuard UI: " WGUI_PASSWORD
-  echo
-fi
+echo "🌐 ¿Quieres usar detección automática de IP pública o un dominio personalizado?"
+read -rp "🔧 Ingresa dominio o IP pública (deja vacío para auto): " CUSTOM_WG_HOST
+WG_HOST=${CUSTOM_WG_HOST:-auto}
 
-read -rsp "🔐 Ingresa la contraseña que tendrá el usuario root del contenedor: " ROOT_PASSWORD
+read -rsp "🔐 Contraseña para el usuario root del contenedor: " ROOT_PASSWORD
 echo
 
 # ========================
-# Descargar plantilla si no existe
+# Verificar y descargar plantilla
 # ========================
-
-TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
 if [[ ! -f "/var/lib/vz/template/cache/${TEMPLATE}" ]]; then
   msg_info "Descargando plantilla Debian 12..."
   pveam update
-  pveam download local ${TEMPLATE}
+  pveam download ${STORAGE} ${TEMPLATE}
 fi
 
 # ========================
-# Crear contenedor LXC
+# Crear y configurar el contenedor
 # ========================
-
-CTID=$(pvesh get /cluster/nextid)
-msg_info "Creando el contenedor LXC con ID $CTID..."
-pct create $CTID local:vztmpl/${TEMPLATE} \
-  -hostname wireguard-stack \
-  -storage ${DETECTED_STORAGE} \
-  -rootfs ${DETECTED_STORAGE}:${var_disk} \
-  -memory ${var_ram} \
-  -cores ${var_cpu} \
+msg_info "Creando contenedor LXC #${CTID}..."
+pct create $CTID ${STORAGE}:vztmpl/${TEMPLATE} \
+  -hostname $WG_HOSTNAME \
+  -storage ${STORAGE} \
+  -rootfs ${STORAGE}:2 \
+  -memory 512 \
+  -cores 1 \
   -net0 name=eth0,bridge=vmbr0,ip=dhcp \
-  -unprivileged ${var_unprivileged} \
+  -unprivileged 1 \
   -features nesting=1
 
-msg_info "Iniciando el contenedor LXC..."
 pct start $CTID
 sleep 5
+pct exec $CTID -- bash -c "echo 'root:${ROOT_PASSWORD}' | chpasswd"
 
 # ========================
-# Asignar contraseña root
+# Instalar Docker dentro del contenedor
 # ========================
-
-msg_info "Asignando contraseña al usuario root..."
-lxc-attach -n $CTID -- bash -c "echo 'root:${ROOT_PASSWORD}' | chpasswd"
-
-# ========================
-# Instalar Docker
-# ========================
-
 msg_info "Instalando Docker en el contenedor..."
-lxc-attach -n $CTID -- bash -c "
-  apt-get update && apt-get install -y ca-certificates curl gnupg lsb-release
+pct exec $CTID -- bash -c "
+  apt-get update && apt-get install -y \
+    ca-certificates curl gnupg lsb-release \
+    apt-transport-https software-properties-common
   install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-  echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \$(lsb_release -cs) stable\" > /etc/apt/sources.list.d/docker.list
-  apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  curl -fsSL https://download.docker.com/linux/debian/gpg | \
+    gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  echo \
+    \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+    https://download.docker.com/linux/debian \$(lsb_release -cs) stable\" | \
+    tee /etc/apt/sources.list.d/docker.list > /dev/null
+  apt-get update
+  apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 "
 
 # ========================
-# Instalar WireGuard + WireGuard-UI
+# Desplegar WG-Easy (imagen oficial)
 # ========================
-
-if [[ "$INSTALL_WIREGUARD" == "s" ]]; then
-  msg_info "Desplegando WireGuard y WireGuard-UI..."
-  lxc-attach -n $CTID -- bash -c "
-    mkdir -p /opt/wireguard && cd /opt/wireguard
-    cat <<EOF > docker-compose.yml
+msg_info "Desplegando WG-Easy con Docker Compose..."
+pct exec $CTID -- bash -c "
+  mkdir -p /opt/wg-easy && cd /opt/wg-easy
+  cat <<EOF > docker-compose.yml
 version: '3.8'
 services:
-  wireguard:
-    image: linuxserver/wireguard:v1.0.20210914-ls6
-    container_name: wireguard
-    cap_add:
-      - NET_ADMIN
-    volumes:
-      - ./config:/config
-    ports:
-      - \"80:5000\"          # WireGuard-UI
-      - \"51820:51820/udp\" # VPN UDP Port
-
-  wireguard-ui:
-    image: ngoduykhanh/wireguard-ui:latest
-    container_name: wireguard-ui
-    depends_on:
-      - wireguard
-    cap_add:
-      - NET_ADMIN
-    network_mode: service:wireguard
+  wg-easy:
+    image: ghcr.io/wg-easy/wg-easy
+    container_name: wg-easy
     environment:
-      - WGUI_USERNAME=${WGUI_USERNAME}
-      - WGUI_PASSWORD=${WGUI_PASSWORD}
-      - WGUI_MANAGE_START=true
-      - WGUI_MANAGE_RESTART=true
-    logging:
-      driver: json-file
-      options:
-        max-size: 50m
+      - PASSWORD=${WG_PASSWORD}
+      - WG_HOST=${WG_HOST}
+    ports:
+      - '${WG_PORT}:51821/tcp'
+      - '51820:51820/udp'
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
     volumes:
-      - ./db:/app/db
       - ./config:/etc/wireguard
+    restart: unless-stopped
 EOF
-    docker compose up -d
-  "
-  msg_ok "WireGuard y WireGuard-UI desplegados correctamente."
-fi
+  docker compose up -d
+"
 
-# ========================
-# Finalización
-# ========================
-
-msg_ok "🎉 Todo listo. Contenedor LXC #$CTID desplegado correctamente."
-msg_info "Puedes acceder con: 'pct enter $CTID' y usar la contraseña de root que proporcionaste."
+msg_ok "WG-Easy (imagen oficial) desplegado correctamente en el contenedor #$CTID 🎉"
+msg_info "🌐 Accede al panel: http://<IP_DEL_CONTENEDOR>:${WG_PORT}"
+msg_info "🔐 Contraseña de acceso: ${WG_PASSWORD}"
