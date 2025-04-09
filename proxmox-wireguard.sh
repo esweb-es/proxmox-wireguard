@@ -10,9 +10,21 @@ msg_error()  { echo -e "\e[31m[ERROR]\e[0m $1"; }
 trap 'msg_error "Se produjo un error en la línea $LINENO"' ERR
 
 # ========================
-# Parámetros iniciales
+# Validación de dependencias
 # ========================
-APP="WG-Easy Oficial (con PASSWORD_HASH)"
+if ! command -v node &> /dev/null; then
+  msg_error "Node.js no está instalado en el nodo. Instálalo con: apt install nodejs npm"
+  exit 1
+fi
+
+if ! node -e "require('bcryptjs')" &> /dev/null; then
+  msg_info "Instalando bcryptjs localmente para generar el hash..."
+  npm install -g bcryptjs
+fi
+
+# ========================
+# Variables base
+# ========================
 TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
 STORAGE="local"
 CTID=$(pvesh get /cluster/nextid)
@@ -27,6 +39,9 @@ WG_PORT=${WG_PORT:-51821}
 read -rsp "🔒 Contraseña para el panel (se convertirá a HASH bcrypt): " WG_PASSWORD
 echo
 
+# Generar el hash en el nodo host
+HASH=$(node -e "console.log(require('bcryptjs').hashSync('${WG_PASSWORD}', 10))")
+
 read -rp "📛 Nombre del servidor LXC [wg-easy]: " WG_HOSTNAME
 WG_HOSTNAME=${WG_HOSTNAME:-wg-easy}
 
@@ -38,7 +53,7 @@ read -rsp "🔐 Contraseña para el usuario root del contenedor: " ROOT_PASSWORD
 echo
 
 # ========================
-# Verificar plantilla
+# Descargar plantilla si no existe
 # ========================
 if [[ ! -f "/var/lib/vz/template/cache/${TEMPLATE}" ]]; then
   msg_info "Descargando plantilla Debian 12..."
@@ -65,14 +80,13 @@ sleep 5
 pct exec $CTID -- bash -c "echo 'root:${ROOT_PASSWORD}' | chpasswd"
 
 # ========================
-# Instalar Docker y Node.js
+# Instalar Docker
 # ========================
-msg_info "Instalando Docker y Node.js..."
+msg_info "Instalando Docker en el contenedor..."
 pct exec $CTID -- bash -c "
   apt-get update && apt-get install -y \
     ca-certificates curl gnupg lsb-release \
-    apt-transport-https software-properties-common \
-    nodejs npm
+    apt-transport-https software-properties-common
   install -m 0755 -d /etc/apt/keyrings
   curl -fsSL https://download.docker.com/linux/debian/gpg | \
     gpg --dearmor -o /etc/apt/keyrings/docker.gpg
@@ -83,12 +97,6 @@ pct exec $CTID -- bash -c "
   apt-get update
   apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 "
-
-# ========================
-# Generar PASSWORD_HASH
-# ========================
-msg_info "Generando HASH bcrypt seguro..."
-HASH=$(pct exec $CTID -- bash -c "node -e \"console.log(require('bcryptjs').hashSync('${WG_PASSWORD}', 10))\"" )
 
 # ========================
 # Crear docker-compose.yml
@@ -122,7 +130,7 @@ EOF
 "
 
 # ========================
-# Mostrar IP y finalizar
+# Final
 # ========================
 CONTAINER_IP=$(pct exec $CTID -- hostname -I | awk '{print $1}')
 msg_ok "WG-Easy desplegado correctamente en el contenedor #$CTID 🎉"
