@@ -1,45 +1,57 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ========================
+# Funciones internas
+# ========================
 msg_ok()     { echo -e "\e[32m[OK]\e[0m $1"; }
 msg_info()   { echo -e "\e[34m[INFO]\e[0m $1"; }
 msg_error()  { echo -e "\e[31m[ERROR]\e[0m $1"; }
 trap 'msg_error "Se produjo un error en la línea $LINENO"' ERR
 
+# ========================
+# Variables base
+# ========================
 TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
 STORAGE="local"
 CTID=$(pvesh get /cluster/nextid)
 
-# === Configuración ===
+# ========================
+# Preguntas al usuario
+# ========================
 echo "⚙️  Configuración de WG-Easy:"
 read -rp "🌍 Puerto para interfaz web [51821]: " WG_PORT
 WG_PORT=${WG_PORT:-51821}
 
-read -rsp "🔒 Contraseña para el panel (se ocultará): " WG_PASSWORD
+read -rsp "🔒 Contraseña para el panel: " WG_PASSWORD
 echo
 
 read -rp "📛 Nombre del contenedor [wg-easy]: " WG_HOSTNAME
 WG_HOSTNAME=${WG_HOSTNAME:-wg-easy}
 
-read -rp "🔧 Dominio o IP pública (dejar vacío para auto): " CUSTOM_WG_HOST
+read -rp "🔧 Dominio o IP pública (vacío = auto): " CUSTOM_WG_HOST
 WG_HOST=${CUSTOM_WG_HOST:-auto}
 
 read -rsp "🔐 Contraseña root del contenedor: " ROOT_PASSWORD
 echo
 
-# === Descargar plantilla ===
+# ========================
+# Descargar plantilla si no existe
+# ========================
 if [[ ! -f "/var/lib/vz/template/cache/${TEMPLATE}" ]]; then
   msg_info "Descargando plantilla Debian 12..."
   pveam update
-  pveam download $STORAGE $TEMPLATE
+  pveam download ${STORAGE} ${TEMPLATE}
 fi
 
-# === Crear contenedor ===
-msg_info "Creando contenedor #$CTID..."
-pct create $CTID $STORAGE:vztmpl/$TEMPLATE \
+# ========================
+# Crear contenedor (6 GB de disco)
+# ========================
+msg_info "Creando contenedor LXC #${CTID} con 6GB de disco..."
+pct create $CTID ${STORAGE}:vztmpl/${TEMPLATE} \
   -hostname $WG_HOSTNAME \
-  -storage $STORAGE \
-  -rootfs $STORAGE:2 \
+  -storage ${STORAGE} \
+  -rootfs ${STORAGE}:6 \
   -memory 512 \
   -cores 1 \
   -net0 name=eth0,bridge=vmbr0,ip=dhcp \
@@ -50,27 +62,35 @@ pct start $CTID
 sleep 5
 pct exec $CTID -- bash -c "echo 'root:${ROOT_PASSWORD}' | chpasswd"
 
-# === Instalar Docker ===
-msg_info "Instalando Docker dentro del contenedor..."
+# ========================
+# Instalar Docker dentro del contenedor
+# ========================
+msg_info "Instalando Docker en el contenedor..."
 pct exec $CTID -- bash -c "
   apt-get update && apt-get install -y \
     ca-certificates curl gnupg lsb-release apt-transport-https
   install -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  curl -fsSL https://download.docker.com/linux/debian/gpg | \
+    gpg --dearmor -o /etc/apt/keyrings/docker.gpg
   echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-    https://download.docker.com/linux/debian \$(lsb_release -cs) stable\" > /etc/apt/sources.list.d/docker.list
+    https://download.docker.com/linux/debian \$(lsb_release -cs) stable\" \
+    > /etc/apt/sources.list.d/docker.list
   apt-get update
   apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 "
 
 sleep 3
 
-# === Generar PASSWORD_HASH usando imagen node ===
-msg_info "Generando PASSWORD_HASH usando imagen node..."
-HASH=$(pct exec $CTID -- bash -c "docker run --rm node bash -c \"npm install bcryptjs > /dev/null && node -e 'console.log(require(\\\"bcryptjs\\\").hashSync(\\\"${WG_PASSWORD}\\\"))'\"" | tail -n 1)
+# ========================
+# Generar PASSWORD_HASH con node:alpine
+# ========================
+msg_info "Generando PASSWORD_HASH usando imagen node:alpine..."
+HASH=$(pct exec $CTID -- bash -c "docker run --rm node:alpine sh -c 'npm install bcryptjs > /dev/null 2>&1 && node -e \"console.log(require(\\\\\\\"bcryptjs\\\\\\\").hashSync(\\\\\\\"${WG_PASSWORD}\\\\\\\"))\"'" | tail -n 1)
 
-# === Crear docker-compose.yml ===
-msg_info "Creando docker-compose.yml en /opt/wg-easy..."
+# ========================
+# Crear docker-compose.yml
+# ========================
+msg_info "Creando docker-compose.yml..."
 pct exec $CTID -- bash -c "
 mkdir -p /opt/wg-easy && cd /opt/wg-easy
 cat <<EOF > docker-compose.yml
@@ -98,7 +118,9 @@ EOF
 docker compose up -d
 "
 
-# === Final ===
+# ========================
+# Final
+# ========================
 CONTAINER_IP=$(pct exec $CTID -- hostname -I | awk '{print $1}')
 msg_ok "WG-Easy desplegado correctamente 🎉"
 msg_info "🌐 Accede al panel: http://${CONTAINER_IP}:${WG_PORT}"
