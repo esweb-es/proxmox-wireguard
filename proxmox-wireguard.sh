@@ -14,10 +14,23 @@ read -rp "🔑 Contraseña root para el contenedor LXC: " ROOT_PASSWORD
 LXC_ID=$(pvesh get /cluster/nextid)
 HOSTNAME="wg-easy"
 STORAGE="local"
-TEMPLATE="local:vztmpl/debian-12-standard_12.0-1_amd64.tar.zst"
+TEMPLATE_FILE="debian-12-standard_12.0-1_amd64.tar.zst"
+TEMPLATE_PATH="/var/lib/vz/template/cache/$TEMPLATE_FILE"
+TEMPLATE="local:vztmpl/$TEMPLATE_FILE"
 REPO="https://github.com/esweb-es/proxmox-wireguard"
 REPO_DIR="/root/proxmox-wireguard"
 IMAGE="ghcr.io/wg-easy/wg-easy:v14"
+
+# ================================================
+# Verificar plantilla LXC
+# ================================================
+if [[ ! -f "$TEMPLATE_PATH" ]]; then
+  echo "📥 Plantilla Debian 12 no encontrada, descargando..."
+  pveam update
+  pveam download local "$TEMPLATE_FILE"
+else
+  echo "✅ Plantilla Debian 12 ya disponible."
+fi
 
 # ================================================
 # Crear contenedor LXC
@@ -53,7 +66,7 @@ git clone $REPO $REPO_DIR
 "
 
 # ================================================
-# Crear carpeta de trabajo y docker-compose.yml
+# Crear docker-compose.yml con montajes personalizados
 # ================================================
 echo "📄 Generando docker-compose.yml dentro del contenedor..."
 pct exec "$LXC_ID" -- mkdir -p /root/wireguard
