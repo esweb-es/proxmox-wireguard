@@ -53,8 +53,7 @@ services:
       # Change Language:
       - LANG=es
       # ⚠️ Required:
-      # Change this to your host's public address
-      - WG_HOST=SERVER_IP
+      - WG_HOST=$WG_HOST
 
       # Optional:
       # - PASSWORD_HASH=YOR_ADMIN_PASSWORD
@@ -71,25 +70,25 @@ services:
       # - WG_PRE_DOWN=echo "Pre Down" > /etc/wireguard/pre-down.txt
       # - WG_POST_DOWN=echo "Post Down" > /etc/wireguard/post-down.txt
       # - UI_TRAFFIC_STATS=true
-      # - UI_CHART_TYPE=0 # (0 Charts disabled, 1 # Line chart, 2 # Area chart, 3 # Bar chart)
+      # - UI_CHART_TYPE=0
       # - WG_ENABLE_ONE_TIME_LINKS=true
       # - UI_ENABLE_SORT_CLIENTS=true
       # - WG_ENABLE_EXPIRES_TIME=true
       # - ENABLE_PROMETHEUS_METRICS=false
-      # - PROMETHEUS_METRICS_PASSWORD=$$2a$$12$$vkvKpeEAHD78gasyawIod.1leBMKg8sBwKW.pQyNsq78bXV3INf2G # (needs double $$, hash of 'prometheus_password'; see "How_to_generate_an_bcrypt_hash.md" for generate the hash)
+      # - PROMETHEUS_METRICS_PASSWORD=\$\$2a\$\$12\$\$vkvKpeEAHD78gasyawIod.1leBMKg8sBwKW.pQyNsq78bXV3INf2G
 
     image: ghcr.io/wg-easy/wg-easy
     container_name: wg-easy
     volumes:
       - etc_wireguard:/etc/wireguard
     ports:
-      - "51820:51820/udp"
-      - "51821:51821/tcp"
+      - '51820:51820/udp'
+      - '51821:51821/tcp'
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
-      # - NET_RAW # ⚠️ Uncomment if using Podman
+      # - NET_RAW
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
