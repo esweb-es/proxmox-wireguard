@@ -8,15 +8,7 @@ if ! command -v pct &> /dev/null; then
 fi
 
 # Solicitar configuración
-while true; do
-  read -p "🌐 Ingresa la IP estática para el contenedor (ej: 192.168.0.7/24): " CT_IP
-  if [[ "$CT_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$ ]]; then
-    break
-  else
-    echo "❌ IP inválida. Debe tener el formato 192.168.0.7/24"
-  fi
-done
-
+read -p "🌐 Ingresa la IP estática para el contenedor (ej: 192.168.0.7/24, o dejar vacío para DHCP): " CT_IP
 read -p "🚪 Puerto para WireGuard (por defecto 51820): " WG_PORT
 WG_PORT=${WG_PORT:-51820}
 read -p "🖥️ Puerto para interfaz web (por defecto 51821): " WG_ADMIN_PORT
@@ -28,9 +20,17 @@ echo
 
 # Configuración adicional
 CT_ID=$(pvesh get /cluster/nextid)
-CT_NAME="wg-easy"
-CT_GW=$(echo "$CT_IP" | cut -d'/' -f1 | cut -d'.' -f1-3).1
-CT_IP_ONLY=$(echo "$CT_IP" | cut -d'/' -f1)
+CT_NAME="Wireguard"
+
+if [[ -z "$CT_IP" ]]; then
+  NET_CONFIG="name=eth0,bridge=vmbr0,ip=dhcp"
+  CT_GW=""
+  CT_IP_ONLY="(por DHCP)"
+else
+  CT_GW=$(echo "$CT_IP" | cut -d'/' -f1 | cut -d'.' -f1-3).1
+  CT_IP_ONLY=$(echo "$CT_IP" | cut -d'/' -f1)
+  NET_CONFIG="name=eth0,bridge=vmbr0,ip=$CT_IP,gw=$CT_GW"
+fi
 
 # Crear contenedor
 echo "🛠️ Creando contenedor LXC (ID: $CT_ID)..."
@@ -40,7 +40,7 @@ if ! pct create "$CT_ID" local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
   --cores 1 \
   --storage local \
   --rootfs local:3 \
-  --net0 name=eth0,bridge=vmbr0,ip="$CT_IP",gw="$CT_GW" \
+  --net0 "$NET_CONFIG" \
   --unprivileged 0 \
   --features nesting=1 >/dev/null; then
     echo "❌ Error al crear el contenedor. Verifica plantilla, red y almacenamiento."
@@ -70,7 +70,7 @@ echo "LANG=en_US.UTF-8" > /etc/default/locale
 '
 
 # Configurar WG-Easy
-echo "🔧 Configurando wg-easy..."
+echo "🔧 Configurando Wireguard..."
 pct exec "$CT_ID" -- bash -c "
 mkdir -p /opt/wg-easy
 cat > /opt/wg-easy/docker-compose.yml <<EOF
@@ -94,7 +94,6 @@ services:
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
-      # - SYS_MODULE
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
