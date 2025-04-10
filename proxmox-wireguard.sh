@@ -3,12 +3,8 @@ set -euo pipefail
 
 # Solicitar datos básicos
 read -rp "➞️  IP/Dominio para WG_HOST: " WG_HOST
-while true; do
-  read -rsp "🔐 Contraseña web: " WEB_PASSWORD
-  echo
-  break
-done
-done
+read -rsp "🔐 Contraseña web: " WEB_PASSWORD
+echo
 read -rsp "🔑 Contraseña root LXC: " ROOT_PASSWORD
 echo
 
@@ -36,19 +32,17 @@ pct start $LXC_ID
 echo "⏳ Esperando que el contenedor esté listo..."
 sleep 10
 
-# Instalar Docker y utilidades
-echo "🐳 Instalando Docker y apache2-utils..."
+# Instalar Docker, Python y bcrypt
+echo "🐳 Instalando Docker y dependencias..."
 pct exec $LXC_ID -- bash -c '
-apt update && apt install -y curl git apache2-utils
-curl -fsSL https://get.docker.com | sh
+apt update &&
+apt install -y curl git python3 python3-pip &&
+curl -fsSL https://get.docker.com | sh &&
+pip3 install bcrypt
 '
 
 # Generar hash bcrypt desde el contenedor
-pct exec "$LXC_ID" -- apt install -y python3 python3-pip
-pct exec "$LXC_ID" -- pip3 install bcrypt
 WEB_PASSWORD_HASH=$(pct exec "$LXC_ID" -- python3 -c "import bcrypt; print(bcrypt.hashpw(b'$WEB_PASSWORD', bcrypt.gensalt()).decode())")
-WEB_PASSWORD_HASH=$(echo "$WEB_PASSWORD_HASH" | tr -d '
-' | sed 's/^.*://')
 
 # Configurar WG-Easy con docker-compose.yml
 echo "🔧 Configurando WG-Easy..."
