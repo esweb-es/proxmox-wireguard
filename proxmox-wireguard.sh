@@ -2,10 +2,17 @@
 set -euo pipefail
 
 # Solicitar datos básicos
-read -rp "➞️  IP/Dominio para WG_HOST: " WG_HOST
-read -rsp "🔐 Contraseña web: " WEB_PASSWORD
-echo
-read -rsp "🔑 Contraseña root LXC: " ROOT_PASSWORD
+read -rp "➞️  IP pública o dominio: " WG_HOST
+while true; do
+  read -rsp "🔐 Contraseña web (solo letras, números y !@#\$%&*-_): " WEB_PASSWORD
+  echo
+  if [[ "$WEB_PASSWORD" =~ ^[A-Za-z0-9!@#\$%&*\-_]+$ ]]; then
+    break
+  else
+    echo "❌ La contraseña contiene caracteres no permitidos. Usa solo letras, números y símbolos !@#\$%&*-_"
+  fi
+done
+read -rsp "🔑 Contraseña root del contenedor LXC: " ROOT_PASSWORD
 echo
 
 # Configuración
@@ -21,7 +28,7 @@ fi
 # Crear contenedor
 echo "🛠️ Creando LXC $LXC_ID..."
 pct create $LXC_ID $TEMPLATE \
-  --hostname wg-easy \
+  --hostname Wireguard \
   --storage local \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
   --cores 1 --memory 512 --rootfs local:3 \
@@ -32,17 +39,19 @@ pct start $LXC_ID
 echo "⏳ Esperando que el contenedor esté listo..."
 sleep 10
 
-# Instalar Docker y utilidades necesarias
+# Instalar Docker y utilidades
 echo "🐳 Instalando Docker y apache2-utils..."
 pct exec $LXC_ID -- bash -c '
 apt update && apt install -y curl git apache2-utils
 curl -fsSL https://get.docker.com | sh
 '
 
-# Generar hash bcrypt correctamente
-WEB_PASSWORD_HASH=$(pct exec "$LXC_ID" -- bash -c "htpasswd -nbBC 12 admin '$WEB_PASSWORD'" | tr -d '\n' | sed 's/^.*://')
+# Generar hash bcrypt desde el contenedor
+WEB_PASSWORD_HASH=$(pct exec "$LXC_ID" -- bash -c "htpasswd -nbBC 12 admin '$WEB_PASSWORD'")
+WEB_PASSWORD_HASH=$(echo "$WEB_PASSWORD_HASH" | tr -d '
+' | sed 's/^.*://')
 
-# Crear docker-compose.yml dentro del contenedor
+# Configurar WG-Easy con docker-compose.yml
 echo "🔧 Configurando WG-Easy..."
 pct exec $LXC_ID -- bash -c "
 mkdir -p /root/wireguard
@@ -77,7 +86,7 @@ cd /root/wireguard && docker compose up -d
 # Obtener IP local del contenedor
 LXC_LOCAL_IP=$(pct exec "$LXC_ID" -- hostname -I | awk '{print $1}')
 
-# Mostrar información
+# Mostrar información final
 echo -e "\n🚀 Configuración completada\n"
 echo "🔐 Usuario: admin"
 echo "🔐 Contraseña Web: (oculta - usando hash bcrypt)"
@@ -88,15 +97,3 @@ echo "   👉 Local:   http://$LXC_LOCAL_IP:51821"
 echo "   🌍 Remoto:  https://$WG_HOST:51821"
 echo ""
 echo "📢 IMPORTANTE: redirige el puerto 51820/udp en tu router hacia la IP local $LXC_LOCAL_IP"
-
-# Verificar estado del contenedor
-echo -e "\n🩺 Verificando estado del contenedor..."
-WG_STATUS=$(pct exec "$LXC_ID" -- docker ps --filter name=wg-easy --format '{{.Status}}')
-
-if [[ "$WG_STATUS" == *"Up"* ]]; then
-  echo "✅ Contenedor Docker wg-easy está en ejecución."
-  echo "🔐 Puedes acceder con: Usuario 'admin' y tu contraseña ingresada."
-else
-  echo "❌ El contenedor Docker wg-easy no se está ejecutando correctamente."
-  echo "   Revisa los logs con: pct exec $LXC_ID -- docker logs wg-easy"
-fi
