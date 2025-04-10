@@ -6,7 +6,7 @@ read -rp "➞️  IP pública o dominio: " WG_HOST
 while true; do
   read -rsp "🔐 Contraseña web (solo letras, números y !@#\$%&*-_): " WEB_PASSWORD
   echo
-  if [[ "$WEB_PASSWORD" =~ ^[A-Za-z0-9!@#\$%&*\-_]+$ ]]; then
+  if [[ "$WEB_PASSWORD" =~ ^[A-Za-z0-9!@#\$%\\&*\-_]+$ ]]; then
     break
   else
     echo "❌ La contraseña contiene caracteres no permitidos. Usa solo letras, números y símbolos !@#\$%&*-_"
