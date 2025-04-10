@@ -1,4 +1,13 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
+# ================================================
+# Script: wg-easy-lxc.sh
+# Descripción: Despliega WG-Easy (WireGuard UI) en un contenedor LXC en Proxmox
+# Autor: esweb-es
+# Imagen: ghcr.io/wg-easy/wg-easy:v14
+# ================================================
+
+set -euo pipefail
 
 # ========= CONFIG =========
 CPU="2"
@@ -6,11 +15,11 @@ RAM="512"
 DISK="4"
 STORAGE="local-lvm"
 BRIDGE="vmbr0"
-IMAGE="eswebes/wg-easy-es:latest"
+IMAGE="ghcr.io/wg-easy/wg-easy:v14"
 
-read -rp "🛡️  Contraseña WG-Easy: " WG_PASSWORD
-read -rp "🌍 Dominio/IP pública WG_HOST: " WG_HOST
-read -rsp "🔐 Contraseña root LXC: " ROOT_PASSWORD
+read -rp "🛡️  Contraseña de administrador para WG-Easy: " WG_PASSWORD
+read -rp "🌍 IP pública o dominio para WG_HOST: " WG_HOST
+read -rsp "🔐 Contraseña root del contenedor: " ROOT_PASSWORD"
 echo
 
 CTID=$(pvesh get /cluster/nextid)
@@ -52,7 +61,7 @@ apt update
 apt install -y docker-ce docker-ce-cli containerd.io
 "
 
-echo "🚀 Ejecutando WG-Easy en el contenedor..."
+echo "🚀 Ejecutando WG-Easy con imagen oficial..."
 lxc-attach -n "$CTID" -- bash -c "
 docker run -d --name wg-easy \
   -e PASSWORD=\"$WG_PASSWORD\" \
@@ -71,5 +80,5 @@ docker run -d --name wg-easy \
 
 IP=$(pct exec "$CTID" -- hostname -I | awk '{print $1}')
 echo
-echo "✅ WG-Easy desplegado exitosamente en el contenedor $CTID"
+echo "✅ WG-Easy desplegado correctamente en el contenedor $CTID"
 echo "🌐 Accede desde: http://$IP:51821"
