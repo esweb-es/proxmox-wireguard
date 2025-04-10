@@ -8,7 +8,15 @@ if ! command -v pct &> /dev/null; then
 fi
 
 # Solicitar configuración
-read -p "🌐 Ingresa la IP estática para el contenedor (ej: 192.168.0.7/24): " CT_IP
+while true; do
+  read -p "🌐 Ingresa la IP estática para el contenedor (ej: 192.168.0.7/24): " CT_IP
+  if [[ "$CT_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$ ]]; then
+    break
+  else
+    echo "❌ IP inválida. Debe tener el formato 192.168.0.7/24"
+  fi
+done
+
 read -p "🚪 Ingresa el puerto para WireGuard (predeterminado 51820): " WG_PORT
 WG_PORT=${WG_PORT:-51820}
 read -p "🖥️ Ingresa el puerto para la interfaz web (predeterminado 51821): " WG_ADMIN_PORT
