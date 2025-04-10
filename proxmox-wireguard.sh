@@ -1,7 +1,5 @@
 #!/bin/bash
-
-# Script corregido para instalar wg-easy en LXC con Proxmox
-# Versión con contraseñas manuales
+set -euo pipefail
 
 # Verificar si estamos en Proxmox
 if ! command -v pct &> /dev/null; then
@@ -31,16 +29,16 @@ pct create $CT_ID local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
     --hostname $CT_NAME \
     --memory 512 \
     --cores 1 \
-    --storage local-lvm \
-    --rootfs local-lvm:2 \
+    --storage local \
+    --rootfs local:3 \
     --net0 name=eth0,bridge=vmbr0,ip=$CT_IP,gw=$CT_GW \
     --unprivileged 0 \
-    --features nesting=1
+    --features nesting=1 >/dev/null
 
 # Iniciar contenedor
 echo "🚀 Iniciando contenedor..."
-pct start $CT_ID
-sleep 10  # Esperar a que el contenedor esté listo
+pct start $CT_ID >/dev/null
+sleep 10
 
 # Configurar contraseña root
 echo "🔐 Configurando acceso root..."
@@ -49,11 +47,13 @@ pct exec $CT_ID -- bash -c "echo 'root:$ROOT_PASSWORD' | chpasswd"
 # Instalar Docker
 echo "🐳 Instalando Docker..."
 pct exec $CT_ID -- bash -c '
-    apt-get update && apt-get install -y ca-certificates curl gnupg
+    apt-get -qq update >/dev/null
+    apt-get -qq install -y ca-certificates curl gnupg >/dev/null
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
-    apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io
+    apt-get -qq update >/dev/null
+    apt-get -qq install -y docker-ce docker-ce-cli containerd.io >/dev/null
 '
 
 # Configurar wg-easy
