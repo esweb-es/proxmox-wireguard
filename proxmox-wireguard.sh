@@ -27,7 +27,7 @@ echo
 # Configuración adicional
 CT_ID=$(pvesh get /cluster/nextid)
 CT_NAME="wg-easy"
-CT_GW=$(echo $CT_IP | cut -d'/' -f1 | cut -d'.' -f1-3).1
+CT_GW=$(echo $CT_IP | cut -d'/' -f1 | cut -d'.' -f1-3).1  # Calcula gateway automáticamente
 
 # Crear contenedor
 echo "🛠️ Creando contenedor LXC (ID: $CT_ID)..."
@@ -66,7 +66,7 @@ pct exec $CT_ID -- bash -c '
     echo "LANG=en_US.UTF-8" > /etc/default/locale
 '
 
-# Configurar wg-easy sin contraseña
+# Configurar wg-easy sin contraseña (modo abierto)
 echo "🔧 Configurando wg-easy (sin contraseña)..."
 pct exec $CT_ID -- bash -c "
     mkdir -p /opt/wg-easy/data
@@ -90,7 +90,6 @@ services:
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
-      - SYS_MODULE
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
@@ -107,5 +106,6 @@ echo -e "Acceso SSH: pct enter $CT_ID"
 echo -e "Usuario: root"
 echo -e "Contraseña: La que ingresaste"
 echo -e "\nInterfaz web: http://$CT_IP_ONLY:$WG_ADMIN_PORT"
+echo -e "(Modo sin contraseña temporalmente habilitado)"
 echo -e "\nPuerto WireGuard: $WG_PORT/udp"
 echo -e "Recuerda abrir los puertos en tu firewall!"
