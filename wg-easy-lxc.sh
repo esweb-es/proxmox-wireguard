@@ -13,7 +13,7 @@ IMAGE="eswebes/wg-easy-es:latest"
 # ========= PREGUNTAS =========
 read -rp "🛡️  Contraseña de administrador para WG-Easy: " WG_PASSWORD
 read -rp "🌍 IP pública o dominio para WG_HOST: " WG_HOST
-read -rsp "🔐 Contraseña root del contenedor: " ROOT_PASSWORD
+read -rsp "🔐 Contraseña root del contenedor: " ROOT_PASSWORD"
 echo
 
 # ========= CTID + TEMPLATE =========
@@ -50,15 +50,19 @@ echo "🐳 Instalando Docker..."
 lxc-attach -n "$CTID" -- bash -c "
 apt update
 apt install -y ca-certificates curl gnupg lsb-release
+
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \$(lsb_release -cs) stable' > /etc/apt/sources.list.d/docker.list
+
+DISTRO=\$(lsb_release -cs)
+echo \"deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \$DISTRO stable\" > /etc/apt/sources.list.d/docker.list
+
 apt update
 apt install -y docker-ce docker-ce-cli containerd.io
 "
 
 # ========= EJECUTAR WG-EASY =========
-echo "🚀 Lanzando WG-Easy..."
+echo "🚀 Lanzando WG-Easy con Docker..."
 lxc-attach -n "$CTID" -- bash -c "
 docker run -d --name wg-easy \
   -e PASSWORD=\"$WG_PASSWORD\" \
@@ -77,5 +81,6 @@ docker run -d --name wg-easy \
 
 # ========= MOSTRAR IP =========
 IP=$(pct exec "$CTID" -- hostname -I | awk '{print $1}')
+echo
 echo "✅ WG-Easy desplegado correctamente en el contenedor $CTID"
 echo "🌐 Accede desde: http://$IP:51821"
