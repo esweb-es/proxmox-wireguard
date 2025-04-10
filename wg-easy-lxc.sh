@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # ================================================
 # Script: wg-easy-lxc.sh
-# Descripción: Despliega un contenedor LXC con WG-Easy (WireGuard UI)
-# Requisitos: Proxmox VE con acceso root y red funcional
+# Descripción: Despliega un contenedor LXC con WG-Easy oficial (v12)
 # ================================================
 
 set -euo pipefail
@@ -63,7 +62,7 @@ echo "🔐 Estableciendo contraseña de root..."
 lxc-attach -n $CTID -- bash -c "echo 'root:${ROOT_PASSWORD}' | chpasswd"
 
 # ========================
-# Instalar Docker
+# Instalar Docker y Docker Compose
 # ========================
 echo "🐳 Instalando Docker y Docker Compose..."
 lxc-attach -n $CTID -- bash -c "
@@ -77,14 +76,15 @@ apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin do
 "
 
 # ========================
-# Clonar WG-Easy y configurar
+# Clonar y configurar WG-Easy (imagen v12)
 # ========================
-echo "📥 Clonando WG-Easy..."
+echo "📥 Clonando WG-Easy y configurando Docker Compose..."
 lxc-attach -n $CTID -- bash -c "
 git clone https://github.com/wg-easy/wg-easy.git /opt/wg-easy
 cd /opt/wg-easy
 echo 'PASSWORD=$WG_PASSWORD' > .env
 echo 'WG_HOST=$WG_HOST' >> .env
+sed -i 's|image:.*|image: ghcr.io/wg-easy/wg-easy:v12|' docker-compose.yml
 docker compose up -d
 "
 
@@ -92,5 +92,5 @@ docker compose up -d
 # Mostrar IP local
 # ========================
 IP_LOCAL=$(pct exec $CTID -- hostname -I | awk '{print $1}')
-echo "✅ Contenedor $CTID creado y funcionando"
-echo "🌐 Accede a WG-Easy en: http://$IP_LOCAL:51821"
+echo "✅ Contenedor $CTID creado correctamente"
+echo "🌐 Accede a WG-Easy desde: http://$IP_LOCAL:51821"
