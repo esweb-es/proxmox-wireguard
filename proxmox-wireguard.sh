@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Solicitar datos básicos
-read -rp "➞️  IP/Dominio para WG_HOST: " WG_HOST
+read -rp "➞️  IP publica o dominio: " WG_HOST
 read -rsp "🔐 Contraseña web: " WEB_PASSWORD
 echo
 read -rsp "🔑 Contraseña root LXC: " ROOT_PASSWORD
@@ -32,23 +32,19 @@ pct start $LXC_ID
 echo "⏳ Esperando que el contenedor esté listo..."
 sleep 10
 
-# Instalar Docker, Python y bcrypt
-echo "🐳 Instalando Docker y dependencias..."
+# Instalar Docker
+echo "🐳 Instalando Docker..."
 pct exec $LXC_ID -- bash -c '
-apt update &&
-apt install -y curl git python3 python3-pip &&
-curl -fsSL https://get.docker.com | sh &&
-pip3 install bcrypt
+apt update && apt install -y curl git
+curl -fsSL https://get.docker.com | sh
 '
-
-# Generar hash bcrypt desde el contenedor
-WEB_PASSWORD_HASH=$(pct exec "$LXC_ID" -- python3 -c "import bcrypt; print(bcrypt.hashpw(b'$WEB_PASSWORD', bcrypt.gensalt()).decode())")
 
 # Configurar WG-Easy con docker-compose.yml
 echo "🔧 Configurando WG-Easy..."
 pct exec $LXC_ID -- bash -c "
 mkdir -p /root/wireguard
 cat > /root/wireguard/docker-compose.yml <<EOF
+version: '3.8'
 volumes:
   etc_wireguard:
 
@@ -58,7 +54,7 @@ services:
     environment:
       - LANG=es
       - WG_HOST=$WG_HOST
-      - PASSWORD_HASH=$WEB_PASSWORD_HASH
+      - PASSWORD=$WEB_PASSWORD
     volumes:
       - etc_wireguard:/etc/wireguard
     ports:
@@ -82,7 +78,7 @@ LXC_LOCAL_IP=$(pct exec "$LXC_ID" -- hostname -I | awk '{print $1}')
 # Mostrar información final
 echo -e "\n🚀 Configuración completada\n"
 echo "🔐 Usuario: admin"
-echo "🔐 Contraseña Web: (oculta - usando hash bcrypt)"
+echo "🔐 Contraseña Web: $WEB_PASSWORD"
 echo "📦 ID Contenedor LXC: $LXC_ID"
 echo ""
 echo "🌐 Accede a WG-Easy desde:"
