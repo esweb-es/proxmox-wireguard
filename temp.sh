@@ -52,6 +52,11 @@ echo "🚀 Iniciando contenedor..."
 pct start "$CT_ID" >/dev/null
 sleep 10
 
+# Detectar IP real si es DHCP
+if [[ "$CT_IP_ONLY" == "(por DHCP)" ]]; then
+  CT_IP_ONLY=$(pct exec "$CT_ID" -- hostname -I | awk '{print $1}')
+fi
+
 # Configurar contraseña root
 echo "🔐 Configurando acceso root..."
 pct exec "$CT_ID" -- bash -c "echo 'root:$ROOT_PASSWORD' | chpasswd"
