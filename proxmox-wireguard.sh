@@ -32,19 +32,17 @@ pct start $LXC_ID
 echo "⏳ Esperando que el contenedor esté listo..."
 sleep 10
 
-# Instalar Docker y utilidades
+# Instalar Docker y utilidades necesarias
 echo "🐳 Instalando Docker y apache2-utils..."
 pct exec $LXC_ID -- bash -c '
 apt update && apt install -y curl git apache2-utils
 curl -fsSL https://get.docker.com | sh
 '
 
-# Generar hash bcrypt desde el contenedor
-WEB_PASSWORD_HASH=$(pct exec "$LXC_ID" -- bash -c "htpasswd -nbBC 12 admin '$WEB_PASSWORD'")
-WEB_PASSWORD_HASH=$(echo "$WEB_PASSWORD_HASH" | tr -d '
-' | sed 's/^.*://')
+# Generar hash bcrypt correctamente
+WEB_PASSWORD_HASH=$(pct exec "$LXC_ID" -- bash -c "htpasswd -nbBC 12 admin '$WEB_PASSWORD'" | tr -d '\n' | sed 's/^.*://')
 
-# Configurar WG-Easy con docker-compose.yml
+# Crear docker-compose.yml dentro del contenedor
 echo "🔧 Configurando WG-Easy..."
 pct exec $LXC_ID -- bash -c "
 mkdir -p /root/wireguard
@@ -79,7 +77,7 @@ cd /root/wireguard && docker compose up -d
 # Obtener IP local del contenedor
 LXC_LOCAL_IP=$(pct exec "$LXC_ID" -- hostname -I | awk '{print $1}')
 
-# Mostrar información final
+# Mostrar información
 echo -e "\n🚀 Configuración completada\n"
 echo "🔐 Usuario: admin"
 echo "🔐 Contraseña Web: (oculta - usando hash bcrypt)"
@@ -90,3 +88,15 @@ echo "   👉 Local:   http://$LXC_LOCAL_IP:51821"
 echo "   🌍 Remoto:  https://$WG_HOST:51821"
 echo ""
 echo "📢 IMPORTANTE: redirige el puerto 51820/udp en tu router hacia la IP local $LXC_LOCAL_IP"
+
+# Verificar estado del contenedor
+echo -e "\n🩺 Verificando estado del contenedor..."
+WG_STATUS=$(pct exec "$LXC_ID" -- docker ps --filter name=wg-easy --format '{{.Status}}')
+
+if [[ "$WG_STATUS" == *"Up"* ]]; then
+  echo "✅ Contenedor Docker wg-easy está en ejecución."
+  echo "🔐 Puedes acceder con: Usuario 'admin' y tu contraseña ingresada."
+else
+  echo "❌ El contenedor Docker wg-easy no se está ejecutando correctamente."
+  echo "   Revisa los logs con: pct exec $LXC_ID -- docker logs wg-easy"
+fi
