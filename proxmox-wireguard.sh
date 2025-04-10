@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Solicitar datos básicos
-read -rp "➞️  IP publica o dominio: " WG_HOST
+read -rp "➞️  IP/Dominio para WG_HOST: " WG_HOST
 read -rsp "🔐 Contraseña web: " WEB_PASSWORD
 echo
 read -rsp "🔑 Contraseña root LXC: " ROOT_PASSWORD
@@ -21,7 +21,7 @@ fi
 # Crear contenedor
 echo "🛠️ Creando LXC $LXC_ID..."
 pct create $LXC_ID $TEMPLATE \
-  --hostname wg-easy \
+  --hostname Wireguard \
   --storage local \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
   --cores 1 --memory 512 --rootfs local:3 \
@@ -32,19 +32,23 @@ pct start $LXC_ID
 echo "⏳ Esperando que el contenedor esté listo..."
 sleep 10
 
-# Instalar Docker
-echo "🐳 Instalando Docker..."
+# Instalar Docker, Node.js y bcrypt
+echo "🐳 Instalando Docker, Node.js y bcrypt..."
 pct exec $LXC_ID -- bash -c '
-apt update && apt install -y curl git
-curl -fsSL https://get.docker.com | sh
+apt update -qq > /dev/null &&
+apt install -y -qq curl git nodejs npm > /dev/null &&
+curl -fsSL https://get.docker.com | sh > /dev/null &&
+npm install -g bcrypt > /dev/null
 '
 
+# Generar hash bcrypt desde Node.js
+WEB_PASSWORD_HASH=$(pct exec "$LXC_ID" -- node -e "require('bcrypt').hash('$WEB_PASSWORD', 12).then(h => console.log(h))")
+
 # Configurar WG-Easy con docker-compose.yml
-echo "🔧 Configurando WG-Easy..."
+echo "🔧 Configurando Wireguard..."
 pct exec $LXC_ID -- bash -c "
-mkdir -p /root/wireguard
+mkdir -p /root/wireguard &&
 cat > /root/wireguard/docker-compose.yml <<EOF
-version: '3.8'
 volumes:
   etc_wireguard:
 
@@ -54,7 +58,7 @@ services:
     environment:
       - LANG=es
       - WG_HOST=$WG_HOST
-      - PASSWORD=$WEB_PASSWORD
+      - PASSWORD_HASH=$WEB_PASSWORD_HASH
     volumes:
       - etc_wireguard:/etc/wireguard
     ports:
@@ -77,8 +81,6 @@ LXC_LOCAL_IP=$(pct exec "$LXC_ID" -- hostname -I | awk '{print $1}')
 
 # Mostrar información final
 echo -e "\n🚀 Configuración completada\n"
-echo "🔐 Usuario: admin"
-echo "🔐 Contraseña Web: $WEB_PASSWORD"
 echo "📦 ID Contenedor LXC: $LXC_ID"
 echo ""
 echo "🌐 Accede a WG-Easy desde:"
