@@ -1,59 +1,87 @@
-## 🛡️ Proxmox WireGuard con WG-Easy (instalación automática con acceso web seguro)
+#!/bin/bash
+set -euo pipefail
 
-Este script despliega un contenedor **LXC** en **Proxmox VE** con **Docker** y **WG-Easy**, una interfaz web moderna para administrar tu servidor **WireGuard VPN**.
+# Solicitar datos básicos
+read -rp "➞️  IP/Dominio para WG_HOST: " WG_HOST
+read -rsp "🔐 Contraseña HASH (bcrypt): " PASSWORD_HASH
+echo
+read -rsp "🔑 Contraseña root del contenedor LXC: " ROOT_PASSWORD
+echo
 
-Utiliza la imagen oficial:
-**`ghcr.io/wg-easy/wg-easy`**
+# Configuración
+LXC_ID=$(pvesh get /cluster/nextid)
+TEMPLATE="local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
 
----
+# Verificar si la plantilla existe en local
+if [[ ! -f "/var/lib/vz/template/cache/debian-12-standard_12.7-1_amd64.tar.zst" ]]; then
+  echo "📦 Descargando plantilla Debian 12..."
+  pveam download local debian-12-standard_12.7-1_amd64.tar.zst >/dev/null 2>&1
+fi
 
-## ⚙️ Características
+# Crear contenedor
+echo "🛠️ Creando LXC $LXC_ID..."
+pct create $LXC_ID $TEMPLATE \
+  --hostname wg-easy \
+  --storage local \
+  --net0 name=eth0,bridge=vmbr0,ip=dhcp \
+  --cores 1 --memory 512 --rootfs local:3 \
+  --password "$ROOT_PASSWORD" \
+  --unprivileged 1 --features nesting=1 >/dev/null 2>&1
 
-- Despliegue totalmente automatizado en Proxmox
-- Contenedor Debian 12 sin privilegios
-- Instalación de Docker automatizada
-- Interfaz web protegida con usuario `admin` y contraseña personalizada
-- Detección automática de la IP local del contenedor
-- Recomendación para redirigir puertos
-- Compatible con almacenamiento `local`
+pct start $LXC_ID >/dev/null 2>&1
+echo "⏳ Esperando que el contenedor esté listo..."
+sleep 10
 
----
+# Instalar Docker
+echo "🐳 Instalando Docker..."
+pct exec $LXC_ID -- bash -c '
+  apt update -qq >/dev/null &&
+  apt install -y -qq curl git >/dev/null &&
+  curl -fsSL https://get.docker.com | sh >/dev/null 2>&1
+' >/dev/null 2>&1
 
-## 🚀 Cómo usar
+# Configurar WG-Easy con docker-compose.yml
+echo "🔧 Configurando WG-Easy..."
+pct exec $LXC_ID -- bash -c "
+mkdir -p /root/wireguard
+cat > /root/wireguard/docker-compose.yml <<EOF
+volumes:
+  etc_wireguard:
 
-Ejecuta el siguiente comando en tu nodo **Proxmox VE** como `root`:
+services:
+  wg-easy:
+    image: ghcr.io/wg-easy/wg-easy
+    environment:
+      - LANG=es
+      - WG_HOST=$WG_HOST
+      - PASSWORD_HASH=$PASSWORD_HASH
+    volumes:
+      - etc_wireguard:/etc/wireguard
+    ports:
+      - '51820:51820/udp'
+      - '51821:51821/tcp'
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+EOF
+cd /root/wireguard && docker compose up -d >/dev/null 2>&1
+" >/dev/null 2>&1
 
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/esweb-es/proxmox-wireguard/main/proxmox-wireguard.sh)"
-```
+# Obtener IP local del contenedor
+LXC_LOCAL_IP=$(pct exec "$LXC_ID" -- hostname -I | awk '{print $1}')
 
----
-
-## 🌎 Acceso a la interfaz WG-Easy
-
-Una vez finalizado el despliegue, verás en pantalla:
-
-- La IP local del contenedor
-- El dominio o IP externa configurada
-- Las credenciales de acceso:
-  - **Usuario:** `admin`
-  - **Contraseña:** la que hayas ingresado al iniciar el script
-
----
-
-## 🔧 Requisitos
-
-- Proxmox VE 7 u 8
-- Plantilla descargada: `debian-12-standard_12.7-1_amd64.tar.zst`
-- Almacenamiento disponible en `local`
-- Acceso como usuario `root`
-
----
-
-## 📢 Nota importante
-
-🚧 Asegúrate de **redirigir el puerto UDP 51820** desde tu router hacia la IP local que se muestra al finalizar la instalación.
-
----
-
-📄 Repositorio oficial: [esweb-es/proxmox-wireguard](https://github.com/esweb-es/proxmox-wireguard)
+# Mostrar información final
+echo -e "\n✅ Configuración completada\n"
+echo "🔐 Usuario: admin"
+echo "🔐 Contraseña: (oculta, con hash)"
+echo "📦 Contenedor LXC ID: $LXC_ID"
+echo ""
+echo "🌐 Accede a WG-Easy desde:"
+echo "   👉 Local:   http://$LXC_LOCAL_IP:51821"
+echo "   🌍 Remoto:  https://$WG_HOST:51821"
+echo ""
+echo "📢 IMPORTANTE: redirige el puerto 51820/udp en tu router hacia la IP local $LXC_LOCAL_IP"
