@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # ================================================
-# Script: wg-easy-lxc.sh
-# Descripción: Despliega un contenedor LXC con WG-Easy oficial (v12)
+# Script: wg-easy-lxc.sh (con docker run directo)
+# Descripción: Despliega un contenedor LXC con WG-Easy español sin usar docker-compose
 # ================================================
 
 set -euo pipefail
 
-APP="WG-Easy (WireGuard UI)"
+APP="WG-Easy Español"
 var_cpu="2"
 var_ram="512"
 var_disk="4"
 var_unprivileged="1"
 BRIDGE="vmbr0"
 STORAGE="local-lvm"
+IMAGE="eswebes/wg-easy-es:latest"
 
 # ========================
 # Preguntas al usuario
@@ -62,30 +63,41 @@ echo "🔐 Estableciendo contraseña de root..."
 lxc-attach -n $CTID -- bash -c "echo 'root:${ROOT_PASSWORD}' | chpasswd"
 
 # ========================
-# Instalar Docker y Docker Compose
+# Instalar Docker
 # ========================
-echo "🐳 Instalando Docker y Docker Compose..."
+echo "🐳 Instalando Docker..."
 lxc-attach -n $CTID -- bash -c "
 apt-get update
-apt-get install -y ca-certificates curl gnupg git lsb-release apt-transport-https software-properties-common
+apt-get install -y ca-certificates curl gnupg git lsb-release software-properties-common
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \$(lsb_release -cs) stable\" > /etc/apt/sources.list.d/docker.list
 apt-get update
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin
 "
 
 # ========================
-# Clonar y configurar WG-Easy (imagen v12)
+# Lanzar WG-Easy con docker run
 # ========================
-echo "📥 Clonando WG-Easy y configurando Docker Compose..."
+echo "🚀 Ejecutando WG-Easy con Docker (imagen: $IMAGE)..."
 lxc-attach -n $CTID -- bash -c "
-git clone https://github.com/wg-easy/wg-easy.git /opt/wg-easy
-cd /opt/wg-easy
-echo 'PASSWORD=$WG_PASSWORD' > .env
-echo 'WG_HOST=$WG_HOST' >> .env
-sed -i 's|image:.*|image: ghcr.io/wg-easy/wg-easy:v15|' docker-compose.yml
-docker compose up -d
+docker run -d \
+  --name wg-easy \
+  -e PASSWORD=\"$WG_PASSWORD\" \
+  -e WG_HOST=\"$WG_HOST\" \
+  -v /etc/wireguard:/etc/wireguard \
+  -v /lib/modules:/lib/modules:ro \
+  -p 51820:51820/udp \
+  -p 51821:51821/tcp \
+  --cap-add=NET_ADMIN \
+  --cap-add=SYS_MODULE \
+  --sysctl net.ipv4.ip_forward=1 \
+  --sysctl net.ipv4.conf.all.src_valid_mark=1 \
+  --sysctl net.ipv6.conf.all.disable_ipv6=0 \
+  --sysctl net.ipv6.conf.all.forwarding=1 \
+  --sysctl net.ipv6.conf.default.forwarding=1 \
+  --restart unless-stopped \
+  $IMAGE
 "
 
 # ========================
