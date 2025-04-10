@@ -89,7 +89,7 @@ services:
       - WG_DEFAULT_ADDRESS=10.8.0.x
       - WG_DEFAULT_DNS=1.1.1.1,8.8.8.8
       - LANG=es
-    image: ghcr.io/wg-easy/wg-easy
+    image: ghcr.io/wg-easy/wg-easy:14
     container_name: wg-easy
     volumes:
       - ./data:/etc/wireguard
