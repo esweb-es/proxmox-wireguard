@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # ================================================
-# Script: wg-easy-lxc.sh (con docker run directo)
-# Descripción: Despliega un contenedor LXC con WG-Easy español sin usar docker-compose
+# Script: wg-easy-lxc.sh (sin docker-compose)
+# Autor: esweb-es
+# Descripción: Despliega WG-Easy (español) en un contenedor LXC en Proxmox
 # ================================================
 
 set -euo pipefail
 
-APP="WG-Easy Español"
+APP="WG-Easy (WireGuard UI)"
 var_cpu="2"
 var_ram="512"
 var_disk="4"
@@ -16,33 +17,28 @@ STORAGE="local-lvm"
 IMAGE="eswebes/wg-easy-es:latest"
 
 # ========================
-# Preguntas al usuario
+# Preguntas
 # ========================
 read -rp "🛡️  Contraseña de administrador para WG-Easy: " WG_PASSWORD
 read -rp "🌍 Dominio o IP pública para WG_HOST: " WG_HOST
-read -rsp "🔐 Contraseña del usuario root para el contenedor: " ROOT_PASSWORD
+read -rsp "🔐 Contraseña del usuario root para el contenedor: " ROOT_PASSWORD"
 echo
 
 # ========================
-# Obtener CTID y plantilla
+# CTID y plantilla
 # ========================
 CTID=$(pvesh get /cluster/nextid)
-echo "📦 Usando CTID disponible: $CTID"
-
 TEMPLATE=$(pveam available --section system | grep debian-12-standard | sort -r | head -n1 | awk '{print $2}')
 
 if [[ ! -f "/var/lib/vz/template/cache/${TEMPLATE}" ]]; then
   echo "⬇️  Descargando plantilla $TEMPLATE..."
   pveam update
   pveam download local $TEMPLATE
-else
-  echo "✅ Plantilla Debian 12 ya está disponible: $TEMPLATE"
 fi
 
 # ========================
 # Crear contenedor
 # ========================
-echo "🚧 Creando contenedor LXC $CTID..."
 pct create $CTID local:vztmpl/${TEMPLATE} \
   -hostname wg-easy \
   -storage ${STORAGE} \
@@ -57,29 +53,26 @@ pct start $CTID
 sleep 5
 
 # ========================
-# Asignar contraseña root
+# Configurar root
 # ========================
-echo "🔐 Estableciendo contraseña de root..."
 lxc-attach -n $CTID -- bash -c "echo 'root:${ROOT_PASSWORD}' | chpasswd"
 
 # ========================
 # Instalar Docker
 # ========================
-echo "🐳 Instalando Docker..."
 lxc-attach -n $CTID -- bash -c "
-apt-get update
-apt-get install -y ca-certificates curl gnupg git lsb-release software-properties-common
+apt update
+apt install -y ca-certificates curl gnupg lsb-release git software-properties-common
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \$(lsb_release -cs) stable\" > /etc/apt/sources.list.d/docker.list
-apt-get update
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin
+apt update
+apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin
 "
 
 # ========================
-# Lanzar WG-Easy con docker run
+# Ejecutar WG-Easy (docker run)
 # ========================
-echo "🚀 Ejecutando WG-Easy con Docker (imagen: $IMAGE)..."
 lxc-attach -n $CTID -- bash -c "
 docker run -d \
   --name wg-easy \
@@ -101,8 +94,8 @@ docker run -d \
 "
 
 # ========================
-# Mostrar IP local
+# IP final
 # ========================
 IP_LOCAL=$(pct exec $CTID -- hostname -I | awk '{print $1}')
-echo "✅ Contenedor $CTID creado correctamente"
-echo "🌐 Accede a WG-Easy desde: http://$IP_LOCAL:51821"
+echo "✅ WG-Easy desplegado correctamente"
+echo "🌐 Accede desde: http://$IP_LOCAL:51821"
