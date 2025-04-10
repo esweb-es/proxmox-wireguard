@@ -21,7 +21,7 @@ fi
 # Crear contenedor
 echo "🛠️ Creando LXC $LXC_ID..."
 pct create $LXC_ID $TEMPLATE \
-  --hostname Wireguard \
+  --hostname wg-easy \
   --storage local \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
   --cores 1 --memory 512 --rootfs local:3 \
@@ -40,7 +40,9 @@ curl -fsSL https://get.docker.com | sh
 '
 
 # Generar hash bcrypt desde el contenedor
-WEB_PASSWORD_HASH=$(pct exec "$LXC_ID" -- bash -c "htpasswd -nbBC 12 admin '$WEB_PASSWORD' | tr -d '\n' | sed 's/^.*://'" )
+WEB_PASSWORD_HASH=$(pct exec "$LXC_ID" -- bash -c "htpasswd -nbBC 12 admin '$WEB_PASSWORD'")
+WEB_PASSWORD_HASH=$(echo "$WEB_PASSWORD_HASH" | tr -d '
+' | sed 's/^.*://')
 
 # Configurar WG-Easy con docker-compose.yml
 echo "🔧 Configurando WG-Easy..."
