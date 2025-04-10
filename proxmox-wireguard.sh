@@ -74,7 +74,6 @@ echo "🔧 Configurando wg-easy..."
 pct exec "$CT_ID" -- bash -c "
 mkdir -p /opt/wg-easy
 cat > /opt/wg-easy/docker-compose.yml <<EOF
-version: '3.8'
 services:
   wg-easy:
     environment:
@@ -84,6 +83,7 @@ services:
       - WG_ADMIN_PORT=$WG_ADMIN_PORT
       - WG_DEFAULT_ADDRESS=10.8.0.x
       - WG_DEFAULT_DNS=1.1.1.1,8.8.8.8
+      - LANG=es
     image: weejewel/wg-easy
     container_name: wg-easy
     volumes:
