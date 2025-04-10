@@ -59,12 +59,13 @@ pct exec $CT_ID -- bash -c "echo 'root:$ROOT_PASSWORD' | chpasswd"
 echo "🐳 Instalando Docker..."
 pct exec $CT_ID -- bash -c '
     apt-get -qq update >/dev/null
-    apt-get -qq install -y ca-certificates curl gnupg >/dev/null
+    apt-get -qq install -y ca-certificates curl gnupg lsb-release >/dev/null
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
     apt-get -qq update >/dev/null
     apt-get -qq install -y docker-ce docker-ce-cli containerd.io >/dev/null
+    echo "LANG=en_US.UTF-8" > /etc/default/locale
 '
 
 # Configurar wg-easy
