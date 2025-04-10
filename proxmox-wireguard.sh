@@ -40,7 +40,7 @@ curl -fsSL https://get.docker.com | sh
 '
 
 # Generar hash bcrypt desde el contenedor
-WEB_PASSWORD_HASH=$(pct exec "$LXC_ID" -- bash -c "htpasswd -nbBC 12 admin '$WEB_PASSWORD' | cut -d ':' -f2")
+WEB_PASSWORD_HASH=$(pct exec "$LXC_ID" -- bash -c "htpasswd -nbBC 12 admin '$WEB_PASSWORD' | tr -d '\n' | sed 's/^.*://'" )
 
 # Configurar WG-Easy con docker-compose.yml
 echo "🔧 Configurando WG-Easy..."
