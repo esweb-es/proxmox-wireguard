@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # Solicitar datos básicos
-read -rp "➞️  IP/Dominio para WG_HOST: " WG_HOST
-read -rsp "🔐 Contraseña web: " WEB_PASSWORD
+read -rp "➞️  IP pública o dominio: " WG_HOST
+read -rsp "🔐 Contraseña para el acceso web: " WEB_PASSWORD
 echo
-read -rsp "🔑 Contraseña root LXC: " ROOT_PASSWORD
+read -rsp "🔑 Contraseña de root para el contenedor LXC: " ROOT_PASSWORD
 echo
 
 # Configuración
