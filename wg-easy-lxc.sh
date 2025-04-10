@@ -1,7 +1,7 @@
 #!/bin/bash
 # ================================================
 # Script: wg-easy-lxc.sh
-# Descripción: Crea un LXC con Docker, instala WG-Easy desde el repo oficial.
+# Descripción: Crea un LXC con Docker y WG-Easy (oficial)
 # ================================================
 
 set -euo pipefail
@@ -11,8 +11,8 @@ read -p "🛡️  Contraseña de administrador para WG-Easy: " WG_PASSWORD
 read -p "🔐 Contraseña de root para el contenedor: " CONTAINER_ROOT_PWD
 read -p "🌍 IP pública o dominio para WG-Easy: " WG_HOST
 
-# Parámetros generales
-CTID=101
+# Obtener siguiente ID disponible
+CTID=$(pvesh get /cluster/nextid)
 CTNAME="Wireguard"
 STORAGE="local"
 HOSTNAME="wireguard"
@@ -22,9 +22,18 @@ GATEWAY="10.42.42.1"
 BRIDGE="vmbr0"
 REPO_URL="https://github.com/wg-easy/wg-easy.git"
 
+echo "📦 Usando ID de contenedor disponible: $CTID"
+
+# Asegurarse de tener la plantilla
+if ! ls /var/lib/vz/template/cache/debian-12*.tar.zst &>/dev/null; then
+  echo "⬇️  Descargando plantilla Debian 12..."
+  pveam update
+  pveam download local debian-12-standard_12.2-1_amd64.tar.zst
+fi
+
 # Crear contenedor
-echo "📦 Creando contenedor LXC ($CTID)..."
-pct create $CTID local:vztmpl/${TEMPLATE}_standard_20240101.tar.zst \
+echo "🚧 Creando contenedor LXC..."
+pct create $CTID local:vztmpl/debian-12-standard_12.2-1_amd64.tar.zst \
   -storage $STORAGE \
   -hostname $HOSTNAME \
   -password $CONTAINER_ROOT_PWD \
@@ -37,10 +46,9 @@ pct create $CTID local:vztmpl/${TEMPLATE}_standard_20240101.tar.zst \
 # Iniciar contenedor
 pct start $CTID
 sleep 5
-echo "⏳ Esperando a que arranque el contenedor..."
+echo "⏳ Arrancando contenedor $CTID..."
 
-# Instalar Docker + Docker Compose
-echo "🐳 Instalando Docker y Docker Compose..."
+# Instalar Docker + Compose
 pct exec $CTID -- bash -c "
 apt update && apt install -y curl git sudo
 curl -fsSL https://get.docker.com | sh
@@ -49,17 +57,15 @@ apt install -y docker-compose
 "
 
 # Clonar el repo oficial
-echo "📥 Clonando WG-Easy desde $REPO_URL..."
 pct exec $CTID -- git clone $REPO_URL /opt/wg-easy
 
 # Crear archivo .env
 pct exec $CTID -- bash -c "echo 'PASSWORD=$WG_PASSWORD' > /opt/wg-easy/.env"
 pct exec $CTID -- bash -c "echo 'WG_HOST=$WG_HOST' >> /opt/wg-easy/.env"
 
-# Levantar servicio
-echo "🚀 Iniciando WG-Easy con Docker Compose..."
+# Iniciar con docker compose
 pct exec $CTID -- bash -c "cd /opt/wg-easy && docker compose up -d"
 
-# Mostrar IP local
-echo "✅ Contenedor $CTNAME creado e iniciado correctamente."
-echo "🌐 Accede a WG-Easy desde: http://10.42.42.42:51821"
+# Mostrar info final
+echo "✅ Contenedor creado: $CTID"
+echo "🌐 Accede a WG-Easy en: http://10.42.42.42:51821"
