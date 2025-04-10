@@ -23,4 +23,4 @@ Utiliza la imagen oficial:
 Ejecuta el siguiente comando en tu nodo **Proxmox VE** como `root`:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/esweb-es/proxmox-wireguard/main/wg-easy-lxc.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/esweb-es/proxmox-wireguard/main/proxmox-wireguard.sh)"
