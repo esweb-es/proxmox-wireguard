@@ -62,17 +62,28 @@ fi
 echo "🔐 Configurando acceso root..."
 pct exec "$CT_ID" -- bash -c "echo 'root:$ROOT_PASSWORD' | chpasswd"
 
-# Instalar Docker y herramientas para hash
-echo "🐳 Instalando Docker y apache2-utils..."
+# Instalar Docker y herramientas necesarias
+echo "🐳 Instalando Docker y herramientas necesarias..."
 pct exec "$CT_ID" -- bash -c '
 apt-get -qq update >/dev/null
+apt-get -qq install -y locales >/dev/null
+locale-gen en_US.UTF-8 >/dev/null
+update-locale LANG=en_US.UTF-8 >/dev/null
 apt-get -qq install -y ca-certificates curl gnupg apache2-utils lsb-release >/dev/null
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
 apt-get -qq update >/dev/null
 apt-get -qq install -y docker-ce docker-ce-cli containerd.io >/dev/null
-echo "LANG=en_US.UTF-8" > /etc/default/locale'
+'
+
+# Verificar si SYS_MODULE está soportado
+HAS_SYS_MODULE=$(pct exec "$CT_ID" -- bash -c 'grep CAP_SYS_MODULE /proc/self/status || echo "not found"' || true)
+if echo "$HAS_SYS_MODULE" | grep -q "CAP_SYS_MODULE"; then
+  SYS_MODULE_LINE="- SYS_MODULE"
+else
+  SYS_MODULE_LINE=""
+fi
 
 # Generar PASSWORD_HASH
 echo "🔐 Generando hash de la contraseña para WG-Easy..."
@@ -103,6 +114,7 @@ services:
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
+      $SYS_MODULE_LINE
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
