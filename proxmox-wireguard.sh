@@ -25,7 +25,7 @@ CT_GW=$(echo $CT_IP | cut -d'/' -f1 | cut -d'.' -f1-3).1  # Calcula gateway auto
 
 # Crear contenedor
 echo "🛠️ Creando contenedor LXC (ID: $CT_ID)..."
-pct create $CT_ID local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
+if ! pct create $CT_ID local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
     --hostname $CT_NAME \
     --memory 512 \
     --cores 1 \
@@ -33,7 +33,10 @@ pct create $CT_ID local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
     --rootfs local:3 \
     --net0 name=eth0,bridge=vmbr0,ip=$CT_IP,gw=$CT_GW \
     --unprivileged 0 \
-    --features nesting=1 >/dev/null
+    --features nesting=1; then
+    echo "❌ Error: No se pudo crear el contenedor LXC. Verifica la plantilla, almacenamiento y configuración de red."
+    exit 1
+fi
 
 # Iniciar contenedor
 echo "🚀 Iniciando contenedor..."
