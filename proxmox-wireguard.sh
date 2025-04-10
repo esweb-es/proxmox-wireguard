@@ -21,7 +21,7 @@ fi
 # Crear contenedor
 echo "🛠️ Creando LXC $LXC_ID..."
 pct create $LXC_ID $TEMPLATE \
-  --hostname wg-easy \
+  --hostname Wireguard \
   --storage local \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
   --cores 1 --memory 512 --rootfs local:3 \
