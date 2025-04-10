@@ -6,7 +6,7 @@ read -rp "➞️  IP/Dominio para WG_HOST: " WG_HOST
 while true; do
   read -rsp "🔐 Contraseña web (solo letras, números y !@#\$%&*-_): " WEB_PASSWORD
   echo
-  if [[ "$WEB_PASSWORD" =~ ^[A-Za-z0-9!@#\$%&*\-_]+$ ]]; then
+  if echo "$WEB_PASSWORD" | grep -qE '^[A-Za-z0-9!@#\$%&*_\-]+$'; then
     break
   else
     echo "❌ La contraseña contiene caracteres no permitidos. Usa solo letras, números y símbolos !@#\$%&*-_"
@@ -39,17 +39,17 @@ pct start $LXC_ID
 echo "⏳ Esperando que el contenedor esté listo..."
 sleep 10
 
-# Instalar Docker y utilidades
-echo "🐳 Instalando Docker y apache2-utils..."
+# Instalar Docker, Python y bcrypt
+echo "🐳 Instalando Docker y utilidades..."
 pct exec $LXC_ID -- bash -c '
-apt update && apt install -y curl git apache2-utils
-curl -fsSL https://get.docker.com | sh
+apt update &&
+apt install -y curl git python3 python3-pip &&
+curl -fsSL https://get.docker.com | sh &&
+pip3 install bcrypt
 '
 
-# Generar hash bcrypt desde el contenedor
-WEB_PASSWORD_HASH=$(pct exec "$LXC_ID" -- bash -c "htpasswd -nbBC 12 admin '$WEB_PASSWORD'")
-WEB_PASSWORD_HASH=$(echo "$WEB_PASSWORD_HASH" | tr -d '
-' | sed 's/^.*://')
+# Generar hash bcrypt con Python (más seguro)
+WEB_PASSWORD_HASH=$(pct exec "$LXC_ID" -- python3 -c "import bcrypt; print(bcrypt.hashpw(b'$WEB_PASSWORD', bcrypt.gensalt()).decode())")
 
 # Configurar WG-Easy con docker-compose.yml
 echo "🔧 Configurando WG-Easy..."
@@ -97,3 +97,15 @@ echo "   👉 Local:   http://$LXC_LOCAL_IP:51821"
 echo "   🌍 Remoto:  https://$WG_HOST:51821"
 echo ""
 echo "📢 IMPORTANTE: redirige el puerto 51820/udp en tu router hacia la IP local $LXC_LOCAL_IP"
+
+# Verificar estado del contenedor
+echo -e "\n🩺 Verificando estado del contenedor..."
+WG_STATUS=$(pct exec "$LXC_ID" -- docker ps --filter name=wg-easy --format '{{.Status}}')
+
+if [[ "$WG_STATUS" == *"Up"* ]]; then
+  echo "✅ Contenedor Docker wg-easy está en ejecución."
+  echo "🔐 Puedes acceder con: Usuario 'admin' y tu contraseña ingresada."
+else
+  echo "❌ El contenedor Docker wg-easy no se está ejecutando correctamente."
+  echo "   Revisa los logs con: pct exec $LXC_ID -- docker logs wg-easy"
+fi
