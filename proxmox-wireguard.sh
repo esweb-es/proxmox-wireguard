@@ -22,20 +22,20 @@ REPO_DIR="/root/proxmox-wireguard"
 IMAGE="ghcr.io/wg-easy/wg-easy:v14"
 
 # ================================================
-# Verificar plantilla LXC
+# Verificar si la plantilla está descargada
 # ================================================
 if [[ ! -f "$TEMPLATE_PATH" ]]; then
-  echo "📥 Plantilla Debian 12 no encontrada, descargando..."
+  echo "📥 Plantilla Debian 12 no encontrada. Descargando..."
   pveam update
   pveam download local "$TEMPLATE_FILE"
 else
-  echo "✅ Plantilla Debian 12 ya disponible."
+  echo "✅ Plantilla Debian 12 ya está disponible."
 fi
 
 # ================================================
 # Crear contenedor LXC
 # ================================================
-echo "📦 Creando contenedor LXC $LXC_ID..."
+echo "📦 Creando contenedor LXC con ID $LXC_ID..."
 pct create "$LXC_ID" "$TEMPLATE" \
   -hostname "$HOSTNAME" \
   -storage "$STORAGE" \
@@ -48,12 +48,12 @@ pct create "$LXC_ID" "$TEMPLATE" \
   -unprivileged 1
 
 pct start "$LXC_ID"
-echo "🚀 Contenedor iniciado."
+echo "🚀 Contenedor iniciado correctamente."
 
 # ================================================
-# Instalar Docker y clonar repo personalizado
+# Instalar Docker y clonar el repositorio
 # ================================================
-echo "🐳 Instalando Docker y clonando repositorio..."
+echo "🐳 Instalando Docker y clonando el repositorio personalizado..."
 pct exec "$LXC_ID" -- bash -c "
 apt update &&
 apt install -y curl git ca-certificates gnupg lsb-release &&
@@ -66,9 +66,9 @@ git clone $REPO $REPO_DIR
 "
 
 # ================================================
-# Crear docker-compose.yml con montajes personalizados
+# Crear archivo docker-compose.yml
 # ================================================
-echo "📄 Generando docker-compose.yml dentro del contenedor..."
+echo "📄 Generando archivo docker-compose.yml..."
 pct exec "$LXC_ID" -- mkdir -p /root/wireguard
 pct exec "$LXC_ID" -- bash -c "cat > /root/wireguard/docker-compose.yml" <<EOF
 version: "3.8"
@@ -104,24 +104,24 @@ volumes:
 EOF
 
 # ================================================
-# Lanzar WG-Easy
+# Lanzar contenedor con Docker Compose
 # ================================================
-echo "🚀 Levantando WG-Easy con Docker Compose..."
+echo "🚀 Iniciando servicio WG-Easy con Docker Compose..."
 pct exec "$LXC_ID" -- bash -c "cd /root/wireguard && docker compose up -d"
 
 # ================================================
-# Información final
+# Mostrar información final
 # ================================================
 LXC_IP=$(pct exec "$LXC_ID" -- hostname -I | awk '{print $1}')
 
 echo ""
-echo "✅ ¡WireGuard Easy ha sido desplegado exitosamente!"
+echo "✅ ¡WireGuard Easy se ha desplegado correctamente!"
 echo ""
-echo "🔗 Accede al panel web desde:"
-echo "   👉 Local (Proxmox): http://$LXC_IP:51821"
-echo "   🌐 Externo (redirección): http://$WG_HOST:51821"
+echo "🌐 Acceso al panel de administración:"
+echo "   - Acceso local desde Proxmox: http://$LXC_IP:51821"
+echo "   - Acceso externo (si redireccionas): http://$WG_HOST:51821"
 echo ""
-echo "🛡️  Contraseña del panel web: $WEB_PASSWORD"
-echo "🔐 Contraseña root del contenedor (LXC $LXC_ID): $ROOT_PASSWORD"
+echo "🔐 Contraseña del panel web: $WEB_PASSWORD"
+echo "🔑 Contraseña root del contenedor (ID $LXC_ID): $ROOT_PASSWORD"
 echo ""
-echo "📢 Recuerda redirigir el puerto UDP 51820 hacia la IP de tu Proxmox."
+echo "📢 Recuerda redirigir el puerto UDP 51820 hacia la IP de tu servidor Proxmox desde tu router."
