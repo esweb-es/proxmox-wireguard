@@ -18,23 +18,27 @@ REPO="https://github.com/esweb-es/proxmox-wireguard"
 REPO_DIR="/root/proxmox-wireguard"
 IMAGE="ghcr.io/wg-easy/wg-easy:v14"
 
-# Detectar plantilla Debian 12 más reciente
+# ================================================
+# Detectar plantilla Debian 12 más reciente (tipo + archivo)
+# ================================================
 TEMPLATE_LINE=$(pveam available | grep 'debian-12-standard' | sort -r | head -n1)
+TEMPLATE_STORAGE=$(echo "$TEMPLATE_LINE" | awk '{print $1}')
 TEMPLATE_FILE=$(echo "$TEMPLATE_LINE" | awk '{print $2}')
 TEMPLATE_PATH="/var/lib/vz/template/cache/$TEMPLATE_FILE"
-TEMPLATE="local:vztmpl/$TEMPLATE_FILE"
+TEMPLATE="$TEMPLATE_STORAGE:vztmpl/$TEMPLATE_FILE"
 
 echo "🧪 Plantilla detectada: $TEMPLATE_FILE"
+echo "📦 Storage de plantilla: $TEMPLATE_STORAGE"
 
 # ================================================
 # Verificar si la plantilla está descargada
 # ================================================
 if [[ ! -f "$TEMPLATE_PATH" ]]; then
-  echo "📥 Plantilla Debian 12 no encontrada. Descargando $TEMPLATE_FILE..."
+  echo "📥 Plantilla no encontrada. Descargando $TEMPLATE_FILE..."
   pveam update
-  pveam download local "$TEMPLATE_FILE"
+  pveam download "$TEMPLATE_STORAGE" "$TEMPLATE_FILE"
 else
-  echo "✅ Plantilla Debian 12 ya está disponible."
+  echo "✅ Plantilla ya disponible localmente."
 fi
 
 # ================================================
@@ -116,18 +120,4 @@ echo "🚀 Iniciando servicio WG-Easy con Docker Compose..."
 pct exec "$LXC_ID" -- bash -c "cd /root/wireguard && docker compose up -d"
 
 # ================================================
-# Mostrar información final
-# ================================================
-LXC_IP=$(pct exec "$LXC_ID" -- hostname -I | awk '{print $1}')
-
-echo ""
-echo "✅ ¡WireGuard Easy se ha desplegado correctamente!"
-echo ""
-echo "🌐 Acceso al panel de administración:"
-echo "   - Acceso local desde Proxmox: http://$LXC_IP:51821"
-echo "   - Acceso externo (si redireccionas): http://$WG_HOST:51821"
-echo ""
-echo "🔐 Contraseña del panel web: $WEB_PASSWORD"
-echo "🔑 Contraseña root del contenedor (ID $LXC_ID): $ROOT_PASSWORD"
-echo ""
-echo "📢 Recuerda redirigir el puerto UDP 51820 hacia la IP de tu servidor Proxmox desde tu router."
+# Mostrar información
