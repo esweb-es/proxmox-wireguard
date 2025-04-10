@@ -39,7 +39,7 @@ apt update && apt install -y curl git
 curl -fsSL https://get.docker.com | sh
 '
 
-# Configurar WG-Easy
+# Configurar WG-Easy con docker-compose.yml CORREGIDO
 echo "🔧 Configurando WG-Easy..."
 pct exec $LXC_ID -- bash -c "
 mkdir -p /root/wireguard
@@ -49,13 +49,10 @@ volumes:
 
 services:
   wg-easy:
+    image: ghcr.io/wg-easy/wg-easy
     environment:
-      # Change Language:
       - LANG=es
-      # ⚠️ Required:
       - WG_HOST=$WG_HOST
-
-      # Optional:
       # - PASSWORD_HASH=YOR_ADMIN_PASSWORD
       # - PORT=51821
       # - WG_PORT=51820
@@ -65,10 +62,7 @@ services:
       # - WG_MTU=1420
       # - WG_ALLOWED_IPS=192.168.15.0/24, 10.0.1.0/24
       # - WG_PERSISTENT_KEEPALIVE=25
-      # - WG_PRE_UP=echo "Pre Up" > /etc/wireguard/pre-up.txt
-      # - WG_POST_UP=echo "Post Up" > /etc/wireguard/post-up.txt
-      # - WG_PRE_DOWN=echo "Pre Down" > /etc/wireguard/pre-down.txt
-      # - WG_POST_DOWN=echo "Post Down" > /etc/wireguard/post-down.txt
+      # - WG_PRE_UP=echo Pre
       # - UI_TRAFFIC_STATS=true
       # - UI_CHART_TYPE=0
       # - WG_ENABLE_ONE_TIME_LINKS=true
@@ -76,9 +70,6 @@ services:
       # - WG_ENABLE_EXPIRES_TIME=true
       # - ENABLE_PROMETHEUS_METRICS=false
       # - PROMETHEUS_METRICS_PASSWORD=\$\$2a\$\$12\$\$vkvKpeEAHD78gasyawIod.1leBMKg8sBwKW.pQyNsq78bXV3INf2G
-
-    image: ghcr.io/wg-easy/wg-easy
-    container_name: wg-easy
     volumes:
       - etc_wireguard:/etc/wireguard
     ports:
@@ -88,11 +79,11 @@ services:
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
-      # - NET_RAW
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
 EOF
+
 cd /root/wireguard && docker compose up -d
 "
 
