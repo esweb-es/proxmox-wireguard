@@ -84,7 +84,7 @@ git clone https://github.com/wg-easy/wg-easy.git /opt/wg-easy
 cd /opt/wg-easy
 echo 'PASSWORD=$WG_PASSWORD' > .env
 echo 'WG_HOST=$WG_HOST' >> .env
-sed -i 's|image:.*|image: ghcr.io/wg-easy/wg-easy:v12|' docker-compose.yml
+sed -i 's|image:.*|image: ghcr.io/wg-easy/wg-easy:v15|' docker-compose.yml
 docker compose up -d
 "
 
