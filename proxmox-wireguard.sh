@@ -8,19 +8,19 @@ if ! command -v pct &> /dev/null; then
 fi
 
 # Solicitar configuración
-read -p "🌐 IP estática para el contenedor (ej: 192.168.0.7/24, o dejar vacío para DHCP): " CT_IP
-read -p "🌍 IP pública o dominio (WG_HOST): " WG_HOST
+read -p "🌐 Ingresa la IP estática para el contenedor (ej: 192.168.0.7/24, o dejar vacío para DHCP): " CT_IP
 read -p "🚪 Puerto para WireGuard (por defecto 51820): " WG_PORT
 WG_PORT=${WG_PORT:-51820}
 read -p "🖥️ Puerto para interfaz web (por defecto 51821): " WG_ADMIN_PORT
 WG_ADMIN_PORT=${WG_ADMIN_PORT:-51821}
 read -rsp "🔐 Contraseña ROOT del contenedor: " ROOT_PASSWORD
 echo
-read -rp "🔐 Ingresa el hash Bcrypt generado para la contraseña de admin: " WG_PASSWORD_HASH
+read -rsp "🔐 Contraseña para la interfaz WEB de WG-Easy: " WG_ADMIN_PASSWORD
+echo
 
 # Configuración adicional
 CT_ID=$(pvesh get /cluster/nextid)
-CT_NAME="wg-easy"
+CT_NAME="Wireguard"
 
 if [[ -z "$CT_IP" ]]; then
   NET_CONFIG="name=eth0,bridge=vmbr0,ip=dhcp"
@@ -75,20 +75,20 @@ echo "LANG=en_US.UTF-8" > /etc/default/locale
 '
 
 # Configurar WG-Easy
-echo "🔧 Configurando wg-easy..."
+echo "🔧 Configurando Wireguard..."
 pct exec "$CT_ID" -- bash -c "
 mkdir -p /opt/wg-easy
 cat > /opt/wg-easy/docker-compose.yml <<EOF
-version: '3.8'
 services:
   wg-easy:
     environment:
-      - WG_HOST=$WG_HOST
-      - PASSWORD_HASH=$WG_PASSWORD_HASH
+      - WG_HOST=$CT_IP_ONLY
+      - PASSWORD=$WG_ADMIN_PASSWORD
       - WG_PORT=$WG_PORT
       - WG_ADMIN_PORT=$WG_ADMIN_PORT
       - WG_DEFAULT_ADDRESS=10.8.0.x
       - WG_DEFAULT_DNS=1.1.1.1,8.8.8.8
+      - LANG=es
     image: weejewel/wg-easy
     container_name: wg-easy
     volumes:
@@ -112,8 +112,8 @@ echo -e "\n=== DATOS DE ACCESO ==="
 echo -e "🆔 Contenedor LXC ID: $CT_ID"
 echo -e "💻 Acceso: pct enter $CT_ID"
 echo -e "🔐 Usuario root / contraseña: La que ingresaste"
-echo -e "\n🌐 Interfaz web: http://$WG_HOST:$WG_ADMIN_PORT"
+echo -e "\n🌐 Interfaz web: http://$CT_IP_ONLY:$WG_ADMIN_PORT"
 echo -e "👤 Usuario: admin"
-echo -e "🔐 Contraseña: (protegida con hash bcrypt)"
+echo -e "🔐 Contraseña: La que ingresaste"
 echo -e "\n📡 Puerto WireGuard: $WG_PORT/udp"
 echo -e "🚨 Redirige ese puerto en tu router hacia: $CT_IP_ONLY"
