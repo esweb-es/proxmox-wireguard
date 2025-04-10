@@ -2,13 +2,12 @@
 
 # ================================================
 # Script: wg-easy-lxc.sh
-# Despliega un contenedor LXC con WG-Easy usando GitHub público + Docker Compose moderno
-# Requiere: Proxmox VE, repo público: https://github.com/esweb-es/wg-easy-deploy
+# Despliega un contenedor LXC con WG-Easy usando Docker Compose y GitHub público
 # ================================================
 
 set -eo pipefail
 
-# Configuración
+# Configuración base
 CPU="2"
 RAM="512"
 DISK="4"
@@ -18,28 +17,34 @@ GIT_REPO="https://github.com/esweb-es/wg-easy-deploy.git"
 REPO_DIR="/opt/wg-easy"
 IMAGE="ghcr.io/wg-easy/wg-easy:v14"
 
-# Preguntas al usuario
+# Entradas del usuario
 read -rp "🛡️  Contraseña WG-Easy (admin web): " WG_PASSWORD
 read -rp "🌍 Dominio/IP pública para WG_HOST: " WG_HOST
 read -rsp "🔐 Contraseña root del contenedor: " ROOT_PASSWORD"
-echo
+echo ""
 
-# Obtener CTID y plantilla
+# Obtener CTID disponible
 CTID=$(pvesh get /cluster/nextid)
-TEMPLATE=$(pveam available --section system | grep debian-12-standard | sort -r | awk '{print $2}')
-[ -z "$TEMPLATE" ] && { echo "❌ No se encontró plantilla Debian 12"; exit 1; }
 
-[ ! -f "/var/lib/vz/template/cache/$TEMPLATE" ] && {
+# Obtener plantilla Debian 12 más reciente
+TEMPLATE=$(pveam available --section system | grep debian-12-standard | sort -r | head -n1 | awk '{print $2}')
+if [[ -z "$TEMPLATE" ]]; then
+  echo "❌ No se pudo detectar la plantilla Debian 12."
+  exit 1
+fi
+
+# Descargar plantilla si no existe
+if [[ ! -f "/var/lib/vz/template/cache/${TEMPLATE}" ]]; then
   echo "📦 Descargando plantilla $TEMPLATE..."
   pveam update
   pveam download local "$TEMPLATE"
-}
+fi
 
-# Crear el contenedor
-echo "🚧 Creando contenedor LXC ID $CTID..."
+# Crear contenedor
+echo "🚧 Creando contenedor LXC $CTID..."
 pct create "$CTID" local:vztmpl/"$TEMPLATE" \
   -hostname wg-easy \
-  -rootfs "$STORAGE:$DISK" \
+  -rootfs "${STORAGE}:${DISK}" \
   -storage "$STORAGE" \
   -memory "$RAM" \
   -cores "$CPU" \
@@ -47,15 +52,16 @@ pct create "$CTID" local:vztmpl/"$TEMPLATE" \
   -unprivileged 1 \
   -features nesting=1
 
+# Iniciar contenedor
 pct start "$CTID"
 sleep 5
 
-# Configurar root
-echo "🔐 Configurando contraseña root..."
+# Establecer contraseña root
+echo "🔐 Configurando contraseña de root..."
 echo "root:$ROOT_PASSWORD" | lxc-attach -n "$CTID" -- chpasswd
 
-# Instalar Docker + Git
-echo "🐳 Instalando Docker y plugins modernos..."
+# Instalar Docker y herramientas necesarias
+echo "🐳 Instalando Docker y plugins..."
 lxc-attach -n "$CTID" -- bash -c "
 apt update
 apt install -y ca-certificates curl gnupg git lsb-release software-properties-common
@@ -67,21 +73,21 @@ apt update
 apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 "
 
-# Clonar el repositorio público desde GitHub
-echo "📥 Clonando repositorio con docker-compose..."
-lxc-attach -n "$CTID" -- bash -c "git clone https://github.com/esweb-es/wg-easy-deploy.git $REPO_DIR"
+# Clonar repositorio público
+echo "📥 Clonando repositorio desde GitHub..."
+lxc-attach -n "$CTID" -- bash -c "git clone $GIT_REPO $REPO_DIR"
 
-# Escribir el archivo .env
-echo "📝 Escribiendo archivo .env..."
+# Crear archivo .env
+echo "📝 Configurando variables de entorno (.env)..."
 lxc-attach -n "$CTID" -- bash -c "echo WG_HOST=$WG_HOST > $REPO_DIR/.env"
 lxc-attach -n "$CTID" -- bash -c "echo WG_PASSWORD=$WG_PASSWORD >> $REPO_DIR/.env"
 
-# Lanzar el servicio con Docker Compose moderno
-echo "🚀 Lanzando WG-Easy con Docker Compose..."
+# Ejecutar docker compose
+echo "🚀 Levantando WG-Easy con Docker Compose..."
 lxc-attach -n "$CTID" -- bash -c "cd $REPO_DIR && docker compose up -d"
 
-# Mostrar IP local
+# Obtener IP del contenedor
 IP=$(pct exec "$CTID" -- hostname -I | awk '{print $1}')
 echo
 echo "✅ WG-Easy desplegado correctamente en el contenedor $CTID"
-echo "🌐 Accede desde: http://$IP:51821"
+echo "🌐 Accedé desde: http://$IP:51821"
