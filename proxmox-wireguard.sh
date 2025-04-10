@@ -16,8 +16,7 @@ read -p "🖥️ Puerto para interfaz web (por defecto 51821): " WG_ADMIN_PORT
 WG_ADMIN_PORT=${WG_ADMIN_PORT:-51821}
 read -rsp "🔐 Contraseña ROOT del contenedor: " ROOT_PASSWORD
 echo
-read -rsp "🔐 Contraseña para la interfaz WEB de WG-Easy: " WG_ADMIN_PASSWORD
-echo
+read -rp "🔐 Ingresa el hash Bcrypt generado para la contraseña de admin: " WG_PASSWORD_HASH
 
 # Configuración adicional
 CT_ID=$(pvesh get /cluster/nextid)
@@ -72,6 +71,7 @@ curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
 apt-get -qq update >/dev/null
 apt-get -qq install -y docker-ce docker-ce-cli containerd.io >/dev/null
+echo "LANG=en_US.UTF-8" > /etc/default/locale
 '
 
 # Configurar WG-Easy
@@ -79,17 +79,17 @@ echo "🔧 Configurando wg-easy..."
 pct exec "$CT_ID" -- bash -c "
 mkdir -p /opt/wg-easy
 cat > /opt/wg-easy/docker-compose.yml <<EOF
+version: '3.8'
 services:
   wg-easy:
     environment:
       - WG_HOST=$WG_HOST
-      - PASSWORD=$WG_ADMIN_PASSWORD
+      - PASSWORD_HASH=$WG_PASSWORD_HASH
       - WG_PORT=$WG_PORT
       - WG_ADMIN_PORT=$WG_ADMIN_PORT
       - WG_DEFAULT_ADDRESS=10.8.0.x
       - WG_DEFAULT_DNS=1.1.1.1,8.8.8.8
-      - LANG=es
-    image: ghcr.io/wg-easy/wg-easy:14
+    image: weejewel/wg-easy
     container_name: wg-easy
     volumes:
       - ./data:/etc/wireguard
@@ -114,6 +114,6 @@ echo -e "💻 Acceso: pct enter $CT_ID"
 echo -e "🔐 Usuario root / contraseña: La que ingresaste"
 echo -e "\n🌐 Interfaz web: http://$WG_HOST:$WG_ADMIN_PORT"
 echo -e "👤 Usuario: admin"
-echo -e "🔐 Contraseña: La que ingresaste"
+echo -e "🔐 Contraseña: (protegida con hash bcrypt)"
 echo -e "\n📡 Puerto WireGuard: $WG_PORT/udp"
 echo -e "🚨 Redirige ese puerto en tu router hacia: $CT_IP_ONLY"
