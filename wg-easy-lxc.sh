@@ -1,77 +1,94 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ================================================
 # Script: wg-easy-lxc.sh
-# Descripción: Despliega un contenedor LXC con WG-Easy oficial
+# Descripción: Despliega un LXC Debian con WG-Easy oficial (Docker + DHCP)
 # ================================================
 
 set -euo pipefail
 
-# Preguntar datos al usuario
-read -p "🛡️  Contraseña de administrador para WG-Easy: " WG_PASSWORD
-read -p "🔐 Contraseña de root para el contenedor: " CONTAINER_ROOT_PWD
-read -p "🌍 IP pública o dominio para WG-Easy: " WG_HOST
+APP="WG-Easy (WireGuard UI)"
+var_tags="docker wireguard vpn"
+var_cpu="2"
+var_ram="512"
+var_disk="4"
+var_os="debian"
+var_version="12"
+var_unprivileged="1"
 
-# Obtener siguiente ID disponible
-CTID=$(pvesh get /cluster/nextid)
-CTNAME="Wireguard"
-STORAGE="local"
-HOSTNAME="wireguard"
-TEMPLATE_FILE="debian-12-standard_12.2-1_amd64.tar.zst"
-TEMPLATE_PATH="/var/lib/vz/template/cache/$TEMPLATE_FILE"
-IPV4="10.42.42.42/24"
-GATEWAY="10.42.42.1"
-BRIDGE="vmbr0"
-REPO_URL="https://github.com/wg-easy/wg-easy.git"
+# ========================
+# Preguntas
+# ========================
+read -rp "🛡️  Contraseña de administrador para WG-Easy: " WG_PASSWORD
+read -rp "🌍 IP pública o dominio para WG-Easy (WG_HOST): " WG_HOST
+read -rsp "🔐 Contraseña de root del contenedor: " ROOT_PASSWORD
+echo
 
-echo "📦 Usando ID de contenedor disponible: $CTID"
+# ========================
+# Fijar storage
+# ========================
+DETECTED_STORAGE="local-lvm"
 
+# ========================
 # Descargar plantilla si no existe
-if [ ! -f "$TEMPLATE_PATH" ]; then
-  echo "⬇️  Descargando plantilla $TEMPLATE_FILE..."
+# ========================
+TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
+if [[ ! -f "/var/lib/vz/template/cache/${TEMPLATE}" ]]; then
+  echo "⬇️  Descargando plantilla Debian 12..."
   pveam update
-  pveam download local $TEMPLATE_FILE
+  pveam download local ${TEMPLATE}
 else
   echo "✅ Plantilla Debian 12 ya está disponible."
 fi
 
-# Crear contenedor
-echo "🚧 Creando contenedor LXC..."
-pct create $CTID local:vztmpl/$TEMPLATE_FILE \
-  -storage $STORAGE \
-  -hostname $HOSTNAME \
-  -password $CONTAINER_ROOT_PWD \
-  -net0 name=eth0,bridge=$BRIDGE,ip=$IPV4,gw=$GATEWAY \
-  -features nesting=1 \
-  -unprivileged 1 \
-  -cores 2 -memory 512 -swap 512 -rootfs $STORAGE:8 \
-  -tags wg-easy
+# ========================
+# Crear contenedor automáticamente
+# ========================
+CTID=$(pvesh get /cluster/nextid)
+echo "📦 Usando CTID disponible: $CTID"
 
-# Iniciar contenedor
+pct create $CTID local:vztmpl/${TEMPLATE} \
+  -hostname wg-easy \
+  -storage ${DETECTED_STORAGE} \
+  -rootfs ${DETECTED_STORAGE}:${var_disk} \
+  -memory ${var_ram} \
+  -cores ${var_cpu} \
+  -net0 name=eth0,bridge=vmbr0,ip=dhcp \
+  -unprivileged ${var_unprivileged} \
+  -features nesting=1
+
 pct start $CTID
 sleep 5
-echo "⏳ Arrancando contenedor $CTID..."
 
+# ========================
+# Asignar contraseña root
+# ========================
+lxc-attach -n $CTID -- bash -c "echo 'root:${ROOT_PASSWORD}' | chpasswd"
+
+# ========================
 # Instalar Docker y Docker Compose
-echo "🐳 Instalando Docker y Docker Compose..."
-pct exec $CTID -- bash -c "
-apt update && apt install -y curl git sudo
-curl -fsSL https://get.docker.com | sh
-usermod -aG docker root
-apt install -y docker-compose
+# ========================
+lxc-attach -n $CTID -- bash -c "
+apt update && apt install -y ca-certificates curl gnupg git sudo lsb-release
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \$(lsb_release -cs) stable\" > /etc/apt/sources.list.d/docker.list
+apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 "
 
-# Clonar el repositorio oficial de WG-Easy
-echo "📥 Clonando WG-Easy desde $REPO_URL..."
-pct exec $CTID -- git clone $REPO_URL /opt/wg-easy
+# ========================
+# Clonar WG-Easy oficial y configurar
+# ========================
+lxc-attach -n $CTID -- bash -c "
+git clone https://github.com/wg-easy/wg-easy.git /opt/wg-easy
+cd /opt/wg-easy
+echo 'PASSWORD=${WG_PASSWORD}' > .env
+echo 'WG_HOST=${WG_HOST}' >> .env
+docker compose up -d
+"
 
-# Crear archivo .env con variables
-pct exec $CTID -- bash -c "echo 'PASSWORD=$WG_PASSWORD' > /opt/wg-easy/.env"
-pct exec $CTID -- bash -c "echo 'WG_HOST=$WG_HOST' >> /opt/wg-easy/.env"
-
-# Iniciar servicio
-echo "🚀 Levantando WG-Easy con Docker Compose..."
-pct exec $CTID -- bash -c "cd /opt/wg-easy && docker compose up -d"
-
-# Mostrar IP local
-echo "✅ Contenedor creado con éxito: $CTID"
-echo "🌐 Accede a WG-Easy desde: http://10.42.42.42:51821"
+# ========================
+# Final
+# ========================
+echo -e "✅ WG-Easy desplegado correctamente en el contenedor #$CTID"
+echo -e "🌐 Cuando obtenga IP por DHCP, accede a: http://[IP-del-contenedor]:51821"
+echo -e "📥 Puedes entrar con: pct enter $CTID"
