@@ -23,13 +23,11 @@ read -p "🖥️ Ingresa el puerto para la interfaz web (predeterminado 51821): 
 WG_ADMIN_PORT=${WG_ADMIN_PORT:-51821}
 read -rsp "🔐 Ingresa la contraseña ROOT para el contenedor: " ROOT_PASSWORD
 echo
-read -rsp "🔐 Ingresa la contraseña para la WEB de wg-easy: " WG_ADMIN_PASSWORD
-echo
 
 # Configuración adicional
 CT_ID=$(pvesh get /cluster/nextid)
 CT_NAME="wg-easy"
-CT_GW=$(echo $CT_IP | cut -d'/' -f1 | cut -d'.' -f1-3).1  # Calcula gateway automáticamente
+CT_GW=$(echo $CT_IP | cut -d'/' -f1 | cut -d'.' -f1-3).1
 
 # Crear contenedor
 echo "🛠️ Creando contenedor LXC (ID: $CT_ID)..."
@@ -68,8 +66,8 @@ pct exec $CT_ID -- bash -c '
     echo "LANG=en_US.UTF-8" > /etc/default/locale
 '
 
-# Configurar wg-easy
-echo "🔧 Configurando wg-easy..."
+# Configurar wg-easy sin contraseña
+echo "🔧 Configurando wg-easy (sin contraseña)..."
 pct exec $CT_ID -- bash -c "
     mkdir -p /opt/wg-easy/data
     cat <<EOF > /opt/wg-easy/docker-compose.yml
@@ -78,7 +76,6 @@ services:
   wg-easy:
     environment:
       - WG_HOST=$(echo $CT_IP | cut -d'/' -f1)
-      - PASSWORD=$WG_ADMIN_PASSWORD
       - WG_PORT=$WG_PORT
       - WG_ADMIN_PORT=$WG_ADMIN_PORT
       - WG_DEFAULT_ADDRESS=10.8.0.x
@@ -110,7 +107,5 @@ echo -e "Acceso SSH: pct enter $CT_ID"
 echo -e "Usuario: root"
 echo -e "Contraseña: La que ingresaste"
 echo -e "\nInterfaz web: http://$CT_IP_ONLY:$WG_ADMIN_PORT"
-echo -e "Usuario web: admin"
-echo -e "Contraseña web: La que ingresaste"
 echo -e "\nPuerto WireGuard: $WG_PORT/udp"
 echo -e "Recuerda abrir los puertos en tu firewall!"
