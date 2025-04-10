@@ -1,53 +1,72 @@
 #!/bin/bash
 set -euo pipefail
 
-# Solicitar datos básicos
-read -rp "➡️  IP/Dominio para WG_HOST: " WG_HOST
-read -rsp "🔐 Contraseña web: " WEB_PASSWORD
+# ================================================
+# Solicitar datos al usuario
+# ================================================
+read -rp "➡️  IP pública o dominio para WG_HOST: " WG_HOST
+read -rsp "🔐 Contraseña para la interfaz web: " WEB_PASSWORD
 echo
-read -rsp "🔑 Contraseña root LXC: " ROOT_PASSWORD
+read -rsp "🔑 Contraseña root para el contenedor LXC: " ROOT_PASSWORD
 echo
 
-# Configuración
+# ================================================
+# Configuración general
+# ================================================
 LXC_ID=$(pvesh get /cluster/nextid)
 TEMPLATE="local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+HOSTNAME="wg-easy"
 
-# Verificar si la plantilla existe en local
+# ================================================
+# Verificar plantilla
+# ================================================
 if [[ ! -f "/var/lib/vz/template/cache/debian-12-standard_12.7-1_amd64.tar.zst" ]]; then
   echo "📥 Descargando plantilla Debian 12..."
+  pveam update
   pveam download local debian-12-standard_12.7-1_amd64.tar.zst
 fi
 
+# ================================================
 # Crear contenedor
-echo "🛠️ Creando LXC $LXC_ID..."
+# ================================================
+echo "🛠️ Creando contenedor LXC $LXC_ID..."
 pct create $LXC_ID $TEMPLATE \
-  --hostname wg-easy \
+  --hostname "$HOSTNAME" \
   --storage local \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
-  --cores 1 --memory 512 --rootfs local:3 \
+  --cores 1 \
+  --memory 512 \
+  --rootfs local:3 \
   --password "$ROOT_PASSWORD" \
-  --unprivileged 1 --features nesting=1
+  --unprivileged 1 \
+  --features nesting=1
 
 pct start $LXC_ID
-echo "⏳ Esperando que el contenedor esté listo..."
+echo "⏳ Esperando a que el contenedor inicie..."
 sleep 10
 
+# ================================================
 # Instalar Docker
-echo "🐳 Instalando Docker..."
+# ================================================
+echo "🐳 Instalando Docker dentro del contenedor..."
 pct exec $LXC_ID -- bash -c '
-apt update && apt install -y curl git
+apt update &&
+apt install -y curl git ca-certificates &&
 curl -fsSL https://get.docker.com | sh
 '
 
-# Configurar WG-Easy
-echo "🔧 Configurando WG-Easy..."
+# ================================================
+# Crear archivo docker-compose.yml y levantar WG-Easy
+# ================================================
+echo "🔧 Configurando WG-Easy dentro del contenedor..."
 pct exec $LXC_ID -- bash -c "
 mkdir -p /root/wireguard
 cat > /root/wireguard/docker-compose.yml <<EOF
-version: '3'
+version: '3.8'
+
 services:
   wg-easy:
-    image: ghcr.io/wg-easy/wg-easy:v14
+    image: weejewel/wg-easy:latest
     container_name: wg-easy
     ports:
       - '51820:51820/udp'
@@ -55,6 +74,7 @@ services:
     environment:
       - WG_HOST=$WG_HOST
       - PASSWORD=$WEB_PASSWORD
+      - LANG=es_ES.UTF-8
     volumes:
       - etc_wireguard:/etc/wireguard
       - /lib/modules:/lib/modules:ro
@@ -64,16 +84,29 @@ services:
     sysctls:
       - net.ipv4.ip_forward=1
     restart: unless-stopped
+
 volumes:
   etc_wireguard:
 EOF
+
 cd /root/wireguard && docker compose up -d
 "
 
-# Mostrar información
-echo -e "\n✅ Configuración completada\n"
-echo "URL Administración: https://$WG_HOST:51821"
-echo "Contraseña Web: $WEB_PASSWORD"
-echo "ID Contenedor LXC: $LXC_ID"
-echo "Puerto WireGuard: 51820/udp"
-echo "Contraseña root LXC: $ROOT_PASSWORD"
+# ================================================
+# Obtener IP local del contenedor
+# ================================================
+LXC_IP=$(pct exec "$LXC_ID" -- hostname -I | awk '{print $1}')
+
+# ================================================
+# Mostrar información final
+# ================================================
+echo -e "\n✅ ¡WG-Easy se ha desplegado correctamente!"
+echo ""
+echo "🔗 Accede al panel desde:"
+echo "   🌐 Local:    http://$LXC_IP:51821"
+echo "   🌍 Externo:  http://$WG_HOST:51821"
+echo ""
+echo "🔐 Contraseña del panel web: (oculta, ya fue ingresada)"
+echo "🔑 Contraseña root del LXC  : (oculta, ya fue ingresada)"
+echo ""
+echo "📢 No olvides redirigir el puerto UDP 51820 en tu router hacia la IP de Proxmox."
