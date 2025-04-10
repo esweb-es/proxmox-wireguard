@@ -8,7 +8,8 @@ if ! command -v pct &> /dev/null; then
 fi
 
 # Solicitar configuración
-read -p "🌐 Ingresa la IP estática para el contenedor (ej: 192.168.0.7/24, o dejar vacío para DHCP): " CT_IP
+read -p "🌐 IP estática para el contenedor (ej: 192.168.0.7/24, o dejar vacío para DHCP): " CT_IP
+read -p "🌍 IP pública o dominio (WG_HOST): " WG_HOST
 read -p "🚪 Puerto para WireGuard (por defecto 51820): " WG_PORT
 WG_PORT=${WG_PORT:-51820}
 read -p "🖥️ Puerto para interfaz web (por defecto 51821): " WG_ADMIN_PORT
@@ -20,7 +21,7 @@ echo
 
 # Configuración adicional
 CT_ID=$(pvesh get /cluster/nextid)
-CT_NAME="Wireguard"
+CT_NAME="wg-easy"
 
 if [[ -z "$CT_IP" ]]; then
   NET_CONFIG="name=eth0,bridge=vmbr0,ip=dhcp"
@@ -52,6 +53,11 @@ echo "🚀 Iniciando contenedor..."
 pct start "$CT_ID" >/dev/null
 sleep 10
 
+# Detectar IP real si es DHCP
+if [[ "$CT_IP_ONLY" == "(por DHCP)" ]]; then
+  CT_IP_ONLY=$(pct exec "$CT_ID" -- hostname -I | awk '{print $1}')
+fi
+
 # Configurar contraseña root
 echo "🔐 Configurando acceso root..."
 pct exec "$CT_ID" -- bash -c "echo 'root:$ROOT_PASSWORD' | chpasswd"
@@ -69,14 +75,15 @@ apt-get -qq install -y docker-ce docker-ce-cli containerd.io >/dev/null
 '
 
 # Configurar WG-Easy
-echo "🔧 Configurando Wireguard..."
+echo "🔧 Configurando wg-easy..."
 pct exec "$CT_ID" -- bash -c "
 mkdir -p /opt/wg-easy
 cat > /opt/wg-easy/docker-compose.yml <<EOF
+version: '3.8'
 services:
   wg-easy:
     environment:
-      - WG_HOST=$CT_IP_ONLY
+      - WG_HOST=$WG_HOST
       - PASSWORD=$WG_ADMIN_PASSWORD
       - WG_PORT=$WG_PORT
       - WG_ADMIN_PORT=$WG_ADMIN_PORT
@@ -106,7 +113,7 @@ echo -e "\n=== DATOS DE ACCESO ==="
 echo -e "🆔 Contenedor LXC ID: $CT_ID"
 echo -e "💻 Acceso: pct enter $CT_ID"
 echo -e "🔐 Usuario root / contraseña: La que ingresaste"
-echo -e "\n🌐 Interfaz web: http://$CT_IP_ONLY:$WG_ADMIN_PORT"
+echo -e "\n🌐 Interfaz web: http://$WG_HOST:$WG_ADMIN_PORT"
 echo -e "👤 Usuario: admin"
 echo -e "🔐 Contraseña: La que ingresaste"
 echo -e "\n📡 Puerto WireGuard: $WG_PORT/udp"
