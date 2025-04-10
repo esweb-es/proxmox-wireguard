@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Solicitar datos básicos
-read -rp "➡️  IP/Dominio para WG_HOST: " WG_HOST
+read -rp "➞️  IP/Dominio para WG_HOST: " WG_HOST
 read -rsp "🔐 Contraseña web: " WEB_PASSWORD
 echo
 read -rsp "🔑 Contraseña root LXC: " ROOT_PASSWORD
@@ -14,7 +14,7 @@ TEMPLATE="local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
 
 # Verificar si la plantilla existe en local
 if [[ ! -f "/var/lib/vz/template/cache/debian-12-standard_12.7-1_amd64.tar.zst" ]]; then
-  echo "📥 Descargando plantilla Debian 12..."
+  echo "📅 Descargando plantilla Debian 12..."
   pveam download local debian-12-standard_12.7-1_amd64.tar.zst
 fi
 
@@ -39,7 +39,7 @@ apt update && apt install -y curl git
 curl -fsSL https://get.docker.com | sh
 '
 
-# Configurar WG-Easy con docker-compose.yml CORREGIDO
+# Configurar WG-Easy con docker-compose.yml
 echo "🔧 Configurando WG-Easy..."
 pct exec $LXC_ID -- bash -c "
 mkdir -p /root/wireguard
@@ -53,23 +53,7 @@ services:
     environment:
       - LANG=es
       - WG_HOST=$WG_HOST
-      # - PASSWORD_HASH=YOR_ADMIN_PASSWORD
-      # - PORT=51821
-      # - WG_PORT=51820
-      # - WG_CONFIG_PORT=92820
-      # - WG_DEFAULT_ADDRESS=10.8.0.x
-      # - WG_DEFAULT_DNS=1.1.1.1
-      # - WG_MTU=1420
-      # - WG_ALLOWED_IPS=192.168.15.0/24, 10.0.1.0/24
-      # - WG_PERSISTENT_KEEPALIVE=25
-      # - WG_PRE_UP=echo Pre
-      # - UI_TRAFFIC_STATS=true
-      # - UI_CHART_TYPE=0
-      # - WG_ENABLE_ONE_TIME_LINKS=true
-      # - UI_ENABLE_SORT_CLIENTS=true
-      # - WG_ENABLE_EXPIRES_TIME=true
-      # - ENABLE_PROMETHEUS_METRICS=false
-      # - PROMETHEUS_METRICS_PASSWORD=\$\$2a\$\$12\$\$vkvKpeEAHD78gasyawIod.1leBMKg8sBwKW.pQyNsq78bXV3INf2G
+      - PASSWORD=$WEB_PASSWORD
     volumes:
       - etc_wireguard:/etc/wireguard
     ports:
@@ -87,10 +71,17 @@ EOF
 cd /root/wireguard && docker compose up -d
 "
 
-# Mostrar información
-echo -e "\n✅ Configuración completada\n"
-echo "URL Administración: https://$WG_HOST:51821"
-echo "Contraseña Web: $WEB_PASSWORD"
-echo "ID Contenedor LXC: $LXC_ID"
-echo "Puerto WireGuard: 51820/udp"
-echo "Contraseña root LXC: $ROOT_PASSWORD"
+# Obtener IP local del contenedor
+LXC_LOCAL_IP=$(pct exec "$LXC_ID" -- hostname -I | awk '{print $1}')
+
+# Mostrar información final
+echo -e "\n🚀 Configuración completada\n"
+echo "🔐 Usuario: admin"
+echo "🔐 Contraseña Web: $WEB_PASSWORD"
+echo "📦 ID Contenedor LXC: $LXC_ID"
+echo ""
+echo "🌐 Accede a WG-Easy desde:"
+echo "   👉 Local:   http://$LXC_LOCAL_IP:51821"
+echo "   🌍 Remoto:  https://$WG_HOST:51821"
+echo ""
+echo "📢 IMPORTANTE: redirige el puerto 51820/udp en tu router hacia la IP local $LXC_LOCAL_IP"
