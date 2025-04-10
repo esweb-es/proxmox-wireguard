@@ -12,18 +12,25 @@ echo
 LXC_ID=$(pvesh get /cluster/nextid)
 TEMPLATE="local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
 
+# Verificar si la plantilla existe en local
+if [[ ! -f "/var/lib/vz/template/cache/debian-12-standard_12.7-1_amd64.tar.zst" ]]; then
+  echo "📥 Descargando plantilla Debian 12..."
+  pveam download local debian-12-standard_12.7-1_amd64.tar.zst
+fi
+
 # Crear contenedor
 echo "🛠️ Creando LXC $LXC_ID..."
 pct create $LXC_ID $TEMPLATE \
   --hostname wg-easy \
-  --storage local-lvm \
+  --storage local \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
-  --cores 1 --memory 512 --rootfs local-lvm:3 \
+  --cores 1 --memory 512 --rootfs local:3 \
   --password "$ROOT_PASSWORD" \
   --unprivileged 1 --features nesting=1
 
 pct start $LXC_ID
-sleep 5
+echo "⏳ Esperando que el contenedor esté listo..."
+sleep 10
 
 # Instalar Docker
 echo "🐳 Instalando Docker..."
@@ -65,7 +72,8 @@ cd /root/wireguard && docker compose up -d
 
 # Mostrar información
 echo -e "\n✅ Configuración completada\n"
-echo "URL: https://$WG_HOST:51821"
-echo "Contraseña: $WEB_PASSWORD"
-echo "LXC ID: $LXC_ID"
-echo "Puerto: 51820/udp"
+echo "URL Administración: https://$WG_HOST:51821"
+echo "Contraseña Web: $WEB_PASSWORD"
+echo "ID Contenedor LXC: $LXC_ID"
+echo "Puerto WireGuard: 51820/udp"
+echo "Contraseña root LXC: $ROOT_PASSWORD"
