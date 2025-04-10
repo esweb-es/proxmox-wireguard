@@ -14,18 +14,20 @@ read -rp "🔑 Contraseña root para el contenedor LXC: " ROOT_PASSWORD
 LXC_ID=$(pvesh get /cluster/nextid)
 HOSTNAME="wg-easy"
 STORAGE="local"
-TEMPLATE_FILE="debian-12-standard_12.0-1_amd64.tar.zst"
-TEMPLATE_PATH="/var/lib/vz/template/cache/$TEMPLATE_FILE"
-TEMPLATE="local:vztmpl/$TEMPLATE_FILE"
 REPO="https://github.com/esweb-es/proxmox-wireguard"
 REPO_DIR="/root/proxmox-wireguard"
 IMAGE="ghcr.io/wg-easy/wg-easy:v14"
+
+# Detectar automáticamente la plantilla Debian 12 más reciente
+TEMPLATE_FILE=$(pveam available | grep 'debian-12-standard' | sort -r | head -n1 | awk '{print $2}')
+TEMPLATE_PATH="/var/lib/vz/template/cache/$TEMPLATE_FILE"
+TEMPLATE="local:vztmpl/$TEMPLATE_FILE"
 
 # ================================================
 # Verificar si la plantilla está descargada
 # ================================================
 if [[ ! -f "$TEMPLATE_PATH" ]]; then
-  echo "📥 Plantilla Debian 12 no encontrada. Descargando..."
+  echo "📥 Plantilla Debian 12 no encontrada. Descargando $TEMPLATE_FILE..."
   pveam update
   pveam download local "$TEMPLATE_FILE"
 else
@@ -71,8 +73,6 @@ git clone $REPO $REPO_DIR
 echo "📄 Generando archivo docker-compose.yml..."
 pct exec "$LXC_ID" -- mkdir -p /root/wireguard
 pct exec "$LXC_ID" -- bash -c "cat > /root/wireguard/docker-compose.yml" <<EOF
-version: "3.8"
-
 services:
   wg-easy:
     image: $IMAGE
@@ -83,6 +83,7 @@ services:
     environment:
       - WG_HOST=$WG_HOST
       - PASSWORD=$WEB_PASSWORD
+      - LANG=es_ES.UTF-8
     volumes:
       - etc_wireguard:/etc/wireguard
       - /lib/modules:/lib/modules:ro
