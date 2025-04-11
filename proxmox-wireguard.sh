@@ -16,8 +16,7 @@ read -p "🖥️ Puerto para interfaz web (por defecto 51821): " WG_ADMIN_PORT
 WG_ADMIN_PORT=${WG_ADMIN_PORT:-51821}
 read -rsp "🔐 Contraseña ROOT del contenedor: " ROOT_PASSWORD
 echo
-read -rsp "🔐 Contraseña para la interfaz WEB de WG-Easy: " WG_ADMIN_PASSWORD
-echo
+read -p "🔐 Pega el hash BCRYPT ya generado para WG-Easy (comienza con \$2a\$): " PASSWORD_HASH
 
 # Configuración adicional
 CT_ID=$(pvesh get /cluster/nextid)
@@ -62,21 +61,17 @@ fi
 echo "🔐 Configurando acceso root..."
 pct exec "$CT_ID" -- bash -c "echo 'root:$ROOT_PASSWORD' | chpasswd"
 
-# Instalar Docker y herramientas para hash
-echo "🐳 Instalando Docker y apache2-utils..."
+# Instalar Docker y herramientas necesarias
+echo "🐳 Instalando Docker..."
 pct exec "$CT_ID" -- bash -c '
 apt-get -qq update >/dev/null
-apt-get -qq install -y ca-certificates curl gnupg apache2-utils lsb-release >/dev/null
+apt-get -qq install -y ca-certificates curl gnupg lsb-release >/dev/null
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
 apt-get -qq update >/dev/null
 apt-get -qq install -y docker-ce docker-ce-cli containerd.io >/dev/null
-echo "LANG=en_US.UTF-8" > /etc/default/locale'
-
-# 🔐 Generar hash de la contraseña para WG-Easy con prefijo $2a$
-PASSWORD_HASH_RAW=$(pct exec "$CT_ID" -- htpasswd -nbBC 12 admin "$WG_ADMIN_PASSWORD" | cut -d: -f2 | sed 's/\$2y\$/\$2a\$/')
-PASSWORD_HASH_ESCAPED=$(echo "$PASSWORD_HASH_RAW" | sed 's/\$/\$\$/g')
+'
 
 # Crear archivo .env y docker-compose.yml dentro del contenedor
 echo "📦 Configurando WG-Easy dentro del contenedor..."
@@ -84,7 +79,7 @@ pct exec "$CT_ID" -- bash -c "
 mkdir -p /opt/wg-easy
 cat > /opt/wg-easy/.env <<EOF
 WG_HOST=$WG_HOST
-PASSWORD_HASH=$PASSWORD_HASH_ESCAPED
+PASSWORD_HASH=$PASSWORD_HASH
 WG_PORT=$WG_PORT
 WG_ADMIN_PORT=$WG_ADMIN_PORT
 WG_DEFAULT_ADDRESS=10.8.0.x
@@ -122,6 +117,6 @@ echo -e "🔐 Usuario root / contraseña: La que ingresaste"
 echo -e "\n🌐 Interfaz web: http://$CT_IP_ONLY:$WG_ADMIN_PORT"
 echo -e "🌍 Desde internet: http://$WG_HOST:$WG_ADMIN_PORT"
 echo -e "👤 Usuario: admin"
-echo -e "🔐 Contraseña: La que ingresaste"
+echo -e "🔐 Contraseña: La que pegaste hasheada"
 echo -e "\n📡 Puerto WireGuard: $WG_PORT/udp"
 echo -e "🚨 Redirige ese puerto en tu router hacia: $CT_IP_ONLY"
