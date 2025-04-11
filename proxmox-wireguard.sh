@@ -6,26 +6,27 @@ VERDE='\033[0;32m'
 ROJO='\033[0;31m'
 AMARILLO='\033[0;33m'
 AZUL='\033[0;34m'
-NC='\033[0m'
+NC='\033[0m' # Sin color
 
-# Verificar Proxmox
-if ! command -v pct &>/dev/null; then
-  echo -e "${ROJO}❌ Este script debe ejecutarse en un nodo Proxmox${NC}"
-  exit 1
+# Verificar entorno Proxmox
+if ! command -v pct &> /dev/null; then
+    echo -e "${ROJO}❌ Este script debe ejecutarse en un nodo Proxmox${NC}"
+    exit 1
 fi
 
 echo -e "${AZUL}=== Instalador de WireGuard Easy en Proxmox ===${NC}"
-echo -e "${AMARILLO}Este script creará un contenedor LXC con WG-Easy${NC}\n"
 
-# Entradas
+# Pedir configuración
 read -p "🌐 IP estática (ej: 192.168.1.100/24) o dejar vacío para DHCP: " CT_IP
 read -p "🌍 Dominio o IP pública (WG_HOST): " WG_HOST
-read -rsp "🔐 Contraseña ROOT del contenedor: " ROOT_PASSWORD; echo
-read -p "🔐 Pega el hash BCRYPT (comienza con \$2...): " BCRYPT_HASH
+read -rsp "🔐 Contraseña ROOT del contenedor: " ROOT_PASSWORD
+echo
+read -p "🔐 Pega el hash BCRYPT (empieza con \$2a\$): " PASSWORD_HASH
 
-# Escapar caracteres $
-ESCAPED_HASH=$(echo "$BCRYPT_HASH" | sed 's/\$/\$\$/g')
+# Escapar signos $
+ESCAPED_HASH=$(echo "$PASSWORD_HASH" | sed 's/\$/\$\$/g')
 
+# Preparar contenedor
 CT_ID=$(pvesh get /cluster/nextid)
 CT_NAME="wg-easy"
 
@@ -38,39 +39,38 @@ else
   CT_IP_SHOW=$(echo "$CT_IP" | cut -d'/' -f1)
 fi
 
-echo -e "\n${AMARILLO}ID del contenedor: ${AZUL}$CT_ID${NC}"
-echo -e "Nombre del contenedor: ${AZUL}$CT_NAME${NC}"
+# Confirmación
+echo -e "\n${AMARILLO}=== Resumen ===${NC}"
+echo -e "ID: ${AZUL}$CT_ID${NC}"
+echo -e "Nombre: ${AZUL}$CT_NAME${NC}"
 echo -e "Red: ${AZUL}$NET_CONFIG${NC}"
-echo -e "WG_HOST: ${AZUL}$WG_HOST${NC}"
-echo -e "${AMARILLO}¿Continuar con la instalación?${NC} (s/n): "
-read -r CONFIRMAR
-if [[ ! "$CONFIRMAR" =~ ^[Ss]$ ]]; then
-    echo -e "${ROJO}Instalación cancelada${NC}"
-    exit 0
-fi
+echo -e "Host público: ${AZUL}$WG_HOST${NC}"
+read -p "¿Continuar? (s/n): " CONFIRMAR
+[[ "$CONFIRMAR" =~ ^[Ss]$ ]] || { echo -e "${ROJO}Cancelado.${NC}"; exit 1; }
 
-echo -e "\n${VERDE}🛠️ Creando contenedor...${NC}"
+# Crear contenedor
+echo -e "${VERDE}🛠️ Creando contenedor...${NC}"
 pct create "$CT_ID" local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
   --hostname "$CT_NAME" \
-  --memory 512 \
-  --cores 1 \
-  --storage local \
-  --rootfs local:3 \
+  --memory 512 --cores 1 \
+  --storage local --rootfs local:3 \
   --net0 "$NET_CONFIG" \
   --unprivileged 0 \
   --features nesting=1 >/dev/null
 
+# Iniciar contenedor
 echo -e "${VERDE}🚀 Iniciando contenedor...${NC}"
 pct start "$CT_ID" >/dev/null
 sleep 10
 
-if [[ "$CT_IP_SHOW" == "(por DHCP)" ]]; then
-  CT_IP_SHOW=$(pct exec "$CT_ID" -- hostname -I | awk '{print $1}')
-fi
+# Detectar IP real si DHCP
+[[ "$CT_IP_SHOW" == "(por DHCP)" ]] && CT_IP_SHOW=$(pct exec "$CT_ID" -- hostname -I | awk '{print $1}')
 
+# Configurar acceso root
 echo -e "${VERDE}🔐 Configurando root...${NC}"
 pct exec "$CT_ID" -- bash -c "echo 'root:$ROOT_PASSWORD' | chpasswd"
 
+# Instalar Docker
 echo -e "${VERDE}🐳 Instalando Docker...${NC}"
 pct exec "$CT_ID" -- bash -c '
 apt-get -qq update >/dev/null
@@ -82,6 +82,7 @@ apt-get -qq update >/dev/null
 apt-get -qq install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
 '
 
+# Crear config WG-Easy
 echo -e "${VERDE}📦 Configurando WG-Easy...${NC}"
 pct exec "$CT_ID" -- bash -c "
 mkdir -p /opt/wg-easy
@@ -94,6 +95,7 @@ WG_DEFAULT_ADDRESS=10.8.0.x
 WG_DEFAULT_DNS=1.1.1.1,8.8.8.8
 LANG=es
 EOF
+
 cat > /opt/wg-easy/docker-compose.yml <<EOF
 services:
   wg-easy:
@@ -113,13 +115,17 @@ services:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
 EOF
+
 cd /opt/wg-easy && docker compose up -d
 "
 
+# ✅ Final
 echo -e "\n${VERDE}✅ Instalación completada${NC}"
-echo -e "\n${AZUL}=== DATOS DE ACCESO ===${NC}"
-echo -e "🆔 Contenedor: ${VERDE}$CT_ID${NC}"
-echo -e "🌐 Interfaz web: ${VERDE}http://$CT_IP_SHOW:51821${NC}"
-echo -e "🌍 Público: ${VERDE}http://$WG_HOST:51821${NC}"
-echo -e "🔐 Usuario: admin / contraseña (la que generaste y convertiste a hash)"
+echo -e "${AZUL}=== Acceso ===${NC}"
+echo -e "Contenedor ID: ${VERDE}$CT_ID${NC}"
+echo -e "Acceso: pct enter $CT_ID"
+echo -e "🌐 Web local: http://$CT_IP_SHOW:51821"
+echo -e "🌍 Web pública: http://$WG_HOST:51821"
+echo -e "🔐 Usuario: admin"
+echo -e "🔑 Contraseña: la que hasheaste y pegaste"
 echo -e "📡 Puerto WireGuard: 51820/udp"
