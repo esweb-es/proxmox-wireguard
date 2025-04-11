@@ -80,7 +80,6 @@ echo "🔧 Configurando Wireguard..."
 pct exec "$CT_ID" -- bash -c "
 mkdir -p /opt/wg-easy
 cat > /opt/wg-easy/docker-compose.yml <<EOF
-version: '3'
 services:
   wg-easy:
     image: ghcr.io/wg-easy/wg-easy:15
@@ -108,7 +107,7 @@ services:
 networks:
   wg:
     driver: bridge
-    enable_ipv6: true
+    enable_ipv6: false
     ipam:
       driver: default
       config:
