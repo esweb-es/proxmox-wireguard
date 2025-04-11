@@ -74,9 +74,8 @@ apt-get -qq update >/dev/null
 apt-get -qq install -y docker-ce docker-ce-cli containerd.io >/dev/null
 echo "LANG=en_US.UTF-8" > /etc/default/locale'
 
-# Generar PASSWORD_HASH y escapar \$
-echo "🔐 Generando hash de la contraseña para WG-Easy..."
-PASSWORD_HASH_RAW=$(pct exec "$CT_ID" -- htpasswd -nbBC 12 admin "$WG_ADMIN_PASSWORD" | cut -d: -f2)
+# 🔐 Generar hash de la contraseña para WG-Easy con prefijo $2a$
+PASSWORD_HASH_RAW=$(pct exec "$CT_ID" -- htpasswd -nbBC 12 admin "$WG_ADMIN_PASSWORD" | cut -d: -f2 | sed 's/\$2y\$/\$2a\$/')
 PASSWORD_HASH_ESCAPED=$(echo "$PASSWORD_HASH_RAW" | sed 's/\$/\$\$/g')
 
 # Crear archivo .env y docker-compose.yml dentro del contenedor
