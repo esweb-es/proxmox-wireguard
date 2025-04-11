@@ -62,17 +62,28 @@ fi
 echo "🔐 Configurando acceso root..."
 pct exec "$CT_ID" -- bash -c "echo 'root:$ROOT_PASSWORD' | chpasswd"
 
-# Instalar Docker
-echo "🐳 Instalando Docker..."
+# Instalar Docker y configurar locales
+echo "🐳 Instalando Docker y configurando locales..."
 pct exec "$CT_ID" -- bash -c '
 apt-get -qq update >/dev/null
-apt-get -qq install -y ca-certificates curl gnupg lsb-release >/dev/null
-install -m 0755 -d /etc/apt/keyrings
+apt-get -qq install -y ca-certificates curl gnupg lsb-release locales >/dev/null
+
+# Generar locales para español
+locale-gen es_ES.UTF-8
+dpkg-reconfigure locales
+
+# Configurar locales en español
+echo "LANG=es_ES.UTF-8" > /etc/default/locale
+echo "LANGUAGE=es_ES" >> /etc/default/locale
+echo "LC_ALL=es_ES.UTF-8" >> /etc/default/locale
+'
+
+# Instalar Docker
+pct exec "$CT_ID" -- bash -c '
 curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
 apt-get -qq update >/dev/null
 apt-get -qq install -y docker-ce docker-ce-cli containerd.io >/dev/null
-echo "LANG=en_US.UTF-8" > /etc/default/locale
 '
 
 # Configurar WG-Easy
@@ -104,7 +115,7 @@ services:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
 EOF
-cd /opt/wg-easy && docker compose up -d
+cd /opt/wg-easy && docker-compose up -d
 "
 
 # Mostrar resumen
