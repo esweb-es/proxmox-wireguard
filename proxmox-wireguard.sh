@@ -22,13 +22,8 @@ read -p "🌐 IP estática (ej: 192.168.1.100/24) o dejar vacío para DHCP: " CT
 read -p "🌍 Dominio o IP pública para WG_HOST: " WG_HOST
 read -rsp "🔐 Contraseña ROOT del contenedor: " ROOT_PASSWORD
 echo
-read -p "🔐 Pega el hash BCRYPT (comienza con \$2a\$): " PASSWORD_HASH
-
-# Validar hash de contraseña
-if [[ ! "$PASSWORD_HASH" =~ ^\$2a\$ ]]; then
-    echo -e "${ROJO}❌ El hash de contraseña no parece ser válido. Debe comenzar con \$2a\$${NC}"
-    exit 1
-fi
+read -rsp "🔐 Contraseña para la interfaz web de WG-Easy: " WGEASY_PASSWORD
+echo
 
 # Configuración adicional
 CT_ID=$(pvesh get /cluster/nextid)
@@ -100,13 +95,25 @@ apt-get -qq update >/dev/null
 apt-get -qq install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
 '
 
+# Instalar Node.js y generar hash bcrypt
+echo -e "${VERDE}🔑 Generando hash bcrypt para la contraseña...${NC}"
+pct exec "$CT_ID" -- bash -c "
+apt-get -qq update >/dev/null
+apt-get -qq install -y nodejs npm >/dev/null
+npm install -g bcryptjs >/dev/null 2>&1
+"
+
+# Generar el hash bcrypt y guardarlo en una variable
+BCRYPT_HASH=$(pct exec "$CT_ID" -- node -e "console.log(require('bcryptjs').hashSync('$WGEASY_PASSWORD', 10))")
+echo -e "${VERDE}✅ Hash bcrypt generado correctamente${NC}"
+
 # Crear entorno WG-Easy
 echo -e "${VERDE}📦 Configurando WG-Easy...${NC}"
 pct exec "$CT_ID" -- bash -c "
 mkdir -p /opt/wg-easy
 cat > /opt/wg-easy/.env <<EOF
 WG_HOST=$WG_HOST
-PASSWORD_HASH=$PASSWORD_HASH
+PASSWORD_HASH=$BCRYPT_HASH
 WG_PORT=51820
 WG_ADMIN_PORT=51821
 WG_DEFAULT_ADDRESS=10.8.0.x
@@ -158,7 +165,7 @@ echo -e "🔐 Usuario root: ${VERDE}contraseña ingresada${NC}"
 echo -e "\n🌐 Interfaz web: ${VERDE}http://$CT_IP_SHOW:51821${NC}"
 echo -e "🌍 Desde internet: ${VERDE}http://$WG_HOST:51821${NC}"
 echo -e "👤 Usuario: ${VERDE}admin${NC}"
-echo -e "🔐 Contraseña: ${VERDE}la que usaste para generar el hash${NC}"
+echo -e "🔐 Contraseña: ${VERDE}la contraseña que ingresaste para WG-Easy${NC}"
 echo -e "\n📡 Puerto WireGuard: ${VERDE}51820/udp${NC}"
 echo -e "🚨 Asegúrate de redirigir este puerto a ${VERDE}$CT_IP_SHOW${NC}"
 echo -e "\n${AMARILLO}Nota: Si usas un dominio, asegúrate de que apunte a tu IP pública${NC}"
