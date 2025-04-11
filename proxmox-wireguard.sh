@@ -44,13 +44,14 @@ echo -e "ID del contenedor: ${AZUL}$CT_ID${NC}"
 echo -e "Nombre del contenedor: ${AZUL}$CT_NAME${NC}"
 echo -e "Configuración de red: ${AZUL}$NET_CONFIG${NC}"
 echo -e "Host WireGuard: ${AZUL}$WG_HOST${NC}"
-read -p "$(echo -e "\n${AMARILLO}¿Continuar con la instalación?${NC} (s/n): ")" CONFIRMAR
+echo -e "\n${AMARILLO}¿Continuar con la instalación?${NC} (s/n): "
+read -r CONFIRMAR
 if [[ ! "$CONFIRMAR" =~ ^[Ss]$ ]]; then
     echo -e "${ROJO}Instalación cancelada${NC}"
     exit 0
 fi
 
-# Crear contenedor
+# Crear contenedor con configuración de locale
 echo -e "\n${VERDE}🛠️ Creando contenedor LXC ID $CT_ID...${NC}"
 pct create "$CT_ID" local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
   --hostname "$CT_NAME" \
@@ -68,72 +69,52 @@ pct start "$CT_ID" >/dev/null
 echo -e "${AMARILLO}Esperando a que el contenedor esté listo...${NC}"
 sleep 15
 
-# Obtener IP si es DHCP
+# Detectar IP real si está en DHCP
 if [[ "$CT_IP_SHOW" == "(por DHCP)" ]]; then
   CT_IP_SHOW=$(pct exec "$CT_ID" -- hostname -I | awk '{print $1}')
+  if [[ -z "$CT_IP_SHOW" ]]; then
+    echo -e "${AMARILLO}Esperando a que se asigne IP por DHCP...${NC}"
+    sleep 10
+    CT_IP_SHOW=$(pct exec "$CT_ID" -- hostname -I | awk '{print $1}')
+  fi
 fi
 
-# Configurar root
+# Configurar contraseña root
 echo -e "${VERDE}🔐 Configurando acceso root...${NC}"
 pct exec "$CT_ID" -- bash -c "echo 'root:$ROOT_PASSWORD' | chpasswd"
 
-# Configurar locales
-echo -e "${VERDE}🌍 Configurando locale...${NC}"
-pct exec "$CT_ID" -- bash -c '
-apt-get -qq update >/dev/null 2>&1
-apt-get -qq install -y locales >/dev/null 2>&1
-echo "es_ES.UTF-8 UTF-8" >> /etc/locale.gen
-locale-gen >/dev/null 2>&1
-echo "LANG=es_ES.UTF-8" > /etc/default/locale
-'
-
-# Instalar Docker
+# Instalar Docker y dependencias
 echo -e "${VERDE}🐳 Instalando Docker...${NC}"
 pct exec "$CT_ID" -- bash -c '
-apt-get -qq update >/dev/null 2>&1
-apt-get -qq install -y ca-certificates curl gnupg lsb-release >/dev/null 2>&1
+export DEBIAN_FRONTEND=noninteractive
+apt-get -qq update >/dev/null
+apt-get -qq install -y ca-certificates curl gnupg lsb-release python3-pip python3-bcrypt >/dev/null
 install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
-apt-get -qq update >/dev/null 2>&1
-apt-get -qq install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin python3-pip >/dev/null 2>&1
-pip3 install bcrypt >/dev/null 2>&1
+apt-get -qq update >/dev/null
+apt-get -qq install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
 '
 
-# Crear script y archivos
+# Crear script de configuración
 echo -e "${VERDE}📦 Configurando WG-Easy...${NC}"
 pct exec "$CT_ID" -- bash -c "cat > /root/setup-wg-easy.py << 'EOF'
 #!/usr/bin/env python3
-import bcrypt
-import os
-import sys
-
+import bcrypt, os, sys
 password = sys.argv[1]
-host = sys.argv[2]
-
-# Generar hash
-bcrypt_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-
-# Escapar $
-escaped_hash = bcrypt_hash.replace('$', '$$')
-
-# Crear directorio
+escaped_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode().replace('$', '$$')
 os.makedirs('/opt/wg-easy', exist_ok=True)
-
-# .env
 with open('/opt/wg-easy/.env', 'w') as f:
-    f.write(f\"""WG_HOST={host}
+    f.write(f'''WG_HOST={sys.argv[2]}
 PASSWORD_HASH={escaped_hash}
 WG_PORT=51820
 WG_ADMIN_PORT=51821
 WG_DEFAULT_ADDRESS=10.8.0.x
 WG_DEFAULT_DNS=1.1.1.1,8.8.8.8
 LANG=es
-\""")
-
-# docker-compose.yml
+''')
 with open('/opt/wg-easy/docker-compose.yml', 'w') as f:
-    f.write(\"""services:
+    f.write('''services:
   wg-easy:
     image: ghcr.io/wg-easy/wg-easy
     container_name: wg-easy
@@ -142,35 +123,30 @@ with open('/opt/wg-easy/docker-compose.yml', 'w') as f:
     volumes:
       - ./data:/etc/wireguard
     ports:
-      - '51820:51820/udp'
-      - '51821:51821/tcp'
+      - "51820:51820/udp"
+      - "51821:51821/tcp"
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
-\""")
-
-print('✅ Configuración lista')
+''')
 EOF"
 
-# Ejecutar setup
+# Ejecutar configuración dentro del contenedor
 pct exec "$CT_ID" -- bash -c "
-chmod +x /root/setup-wg-easy.py
 python3 /root/setup-wg-easy.py '$WGEASY_PASSWORD' '$WG_HOST'
 cd /opt/wg-easy && docker compose up -d
 "
 
-# Resumen
+# Mostrar resumen
 echo -e "\n${VERDE}✅ Instalación completada${NC}"
 echo -e "\n${AZUL}=== DATOS DE ACCESO ===${NC}"
 echo -e "🆔 Contenedor ID: ${VERDE}$CT_ID${NC}"
 echo -e "💻 Acceso: ${VERDE}pct enter $CT_ID${NC}"
-echo -e "🔐 Usuario root: ${VERDE}la contraseña que ingresaste${NC}"
-echo -e "\n🌐 Interfaz web: ${VERDE}http://$CT_IP_SHOW:51821${NC}"
+echo -e "🌐 Interfaz web: ${VERDE}http://$CT_IP_SHOW:51821${NC}"
 echo -e "🌍 Desde internet: ${VERDE}http://$WG_HOST:51821${NC}"
 echo -e "👤 Usuario: ${VERDE}admin${NC}"
-echo -e "🔐 Contraseña: ${VERDE}la que ingresaste${NC}"
-echo -e "\n📡 Puerto WireGuard: ${VERDE}51820/udp${NC}"
-echo -e "🚨 Redirígelo en tu router hacia: ${VERDE}$CT_IP_SHOW${NC}"
+echo -e "🔐 Contraseña: ${VERDE}(la que ingresaste)${NC}"
+echo -e "📡 Puerto WireGuard: ${VERDE}51820/udp${NC}"
