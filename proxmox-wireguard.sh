@@ -35,8 +35,10 @@ fi
 
 read -rsp "🔐 Contraseña ROOT del contenedor: " ROOT_PASSWORD
 echo
-read -rsp "🔐 Contraseña para la interfaz web de WG-Easy: " WGEASY_PASSWORD
-echo
+read -p "� Ingresa el hash bcrypt de la contraseña para WG-Easy: " BCRYPT_HASH
+
+# Escapar los caracteres $ duplicándolos
+ESCAPED_HASH=$(echo "$BCRYPT_HASH" | sed 's/\$/\$\$/g')
 
 # Configuración adicional
 CT_ID=$(pvesh get /cluster/nextid)
@@ -64,7 +66,7 @@ if [[ ! "$CONFIRMAR" =~ ^[Ss]$ ]]; then
     exit 0
 fi
 
-# Crear contenedor con configuración de locale
+# Crear contenedor
 echo -e "\n${VERDE}🛠️ Creando contenedor LXC ID $CT_ID...${NC}"
 pct create "$CT_ID" local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
   --hostname "$CT_NAME" \
@@ -96,72 +98,22 @@ fi
 echo -e "${VERDE}🔐 Configurando acceso root...${NC}"
 pct exec "$CT_ID" -- bash -c "echo 'root:$ROOT_PASSWORD' | chpasswd"
 
-# Configurar locale correctamente antes de cualquier otra operación
-echo -e "${VERDE}🌍 Configurando locale...${NC}"
-pct exec "$CT_ID" -- bash -c '
-export DEBIAN_FRONTEND=noninteractive
-apt-get -qq update >/dev/null 2>&1
-apt-get -qq install -y locales >/dev/null 2>&1
-echo "en_US.UTF-8 UTF-8" > /etc/locale.gen
-echo "es_ES.UTF-8 UTF-8" >> /etc/locale.gen
-locale-gen >/dev/null 2>&1
-echo "export LANG=es_ES.UTF-8" > /etc/profile.d/locale.sh
-echo "export LC_ALL=es_ES.UTF-8" >> /etc/profile.d/locale.sh
-chmod +x /etc/profile.d/locale.sh
-echo "LANG=es_ES.UTF-8" > /etc/default/locale
-echo "LC_ALL=es_ES.UTF-8" >> /etc/default/locale
-'
-
-# Instalar Docker con configuración de locale
-echo -e "${VERDE}🐳 Instalando Docker...${NC}"
-pct exec "$CT_ID" -- bash -c '
-source /etc/profile.d/locale.sh
-export DEBIAN_FRONTEND=noninteractive
-apt-get -qq update >/dev/null 2>&1
-apt-get -qq install -y ca-certificates curl gnupg lsb-release >/dev/null 2>&1
-install -d -m 0755 /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
-apt-get -qq update >/dev/null 2>&1
-apt-get -qq install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null 2>&1
-'
-
-# Crear entorno WG-Easy con script Python para generar el hash
+# Crear entorno WG-Easy
 echo -e "${VERDE}📦 Configurando WG-Easy...${NC}"
-
-# Crear un script Python en el contenedor para generar el hash y configurar WG-Easy
-pct exec "$CT_ID" -- bash -c "cat > /root/setup-wg-easy.py << 'EOF'
-#!/usr/bin/env python3
-import bcrypt
-import os
-import sys
-
-# Obtener la contraseña como argumento
-password = sys.argv[1]
-
-# Generar el hash bcrypt
-bcrypt_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-
-# Escapar los caracteres $ duplicándolos para el archivo .env
-escaped_hash = bcrypt_hash.replace('$', '$$')
-
-# Crear el directorio para WG-Easy
-os.makedirs('/opt/wg-easy', exist_ok=True)
-
-# Crear el archivo .env con el hash escapado
-with open('/opt/wg-easy/.env', 'w') as f:
-    f.write(f'''WG_HOST={sys.argv[2]}
-PASSWORD_HASH={escaped_hash}
+pct exec "$CT_ID" -- bash -c "
+mkdir -p /opt/wg-easy
+cat > /opt/wg-easy/.env <<EOF
+WG_HOST=$WG_HOST
+PASSWORD_HASH=$ESCAPED_HASH
 WG_PORT=51820
 WG_ADMIN_PORT=51821
 WG_DEFAULT_ADDRESS=10.8.0.x
 WG_DEFAULT_DNS=1.1.1.1,8.8.8.8
 LANG=es
-''')
+EOF
 
-# Crear el archivo docker-compose.yml
-with open('/opt/wg-easy/docker-compose.yml', 'w') as f:
-    f.write('''services:
+cat > /opt/wg-easy/docker-compose.yml <<EOF
+services:
   wg-easy:
     image: ghcr.io/wg-easy/wg-easy
     container_name: wg-easy
@@ -178,25 +130,14 @@ with open('/opt/wg-easy/docker-compose.yml', 'w') as f:
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
-''')
+EOF
 
-print('Configuración completada con éxito')
-EOF"
-
-# Instalar dependencias de Python y ejecutar el script
-pct exec "$CT_ID" -- bash -c "
-source /etc/profile.d/locale.sh
-export DEBIAN_FRONTEND=noninteractive
-apt-get -qq install -y python3-pip python3-bcrypt >/dev/null 2>&1
-chmod +x /root/setup-wg-easy.py
-python3 /root/setup-wg-easy.py '$WGEASY_PASSWORD' '$WG_HOST'
 cd /opt/wg-easy && docker compose up -d
 "
 
 # Configurar firewall básico
 echo -e "${VERDE}🔒 Configurando firewall básico...${NC}"
 pct exec "$CT_ID" -- bash -c '
-source /etc/profile.d/locale.sh
 export DEBIAN_FRONTEND=noninteractive
 apt-get -qq install -y ufw >/dev/null 2>&1
 ufw default deny incoming
@@ -205,17 +146,6 @@ ufw allow 22/tcp
 ufw allow 51820/udp
 ufw allow 51821/tcp
 echo "y" | ufw enable
-'
-
-# Limpiar paquetes innecesarios y archivos temporales
-echo -e "${VERDE}🧹 Limpiando paquetes innecesarios...${NC}"
-pct exec "$CT_ID" -- bash -c '
-source /etc/profile.d/locale.sh
-export DEBIAN_FRONTEND=noninteractive
-rm -f /root/setup-wg-easy.py
-apt-get -qq remove -y python3-pip python3-bcrypt >/dev/null 2>&1
-apt-get -qq autoremove -y >/dev/null 2>&1
-apt-get -qq clean >/dev/null 2>&1
 '
 
 # Resumen
