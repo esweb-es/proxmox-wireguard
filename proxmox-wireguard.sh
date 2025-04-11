@@ -16,7 +16,7 @@ read -p "🖥️ Puerto para interfaz web (por defecto 51821): " WG_ADMIN_PORT
 WG_ADMIN_PORT=${WG_ADMIN_PORT:-51821}
 read -rsp "🔐 Contraseña ROOT para el contenedor: " ROOT_PASSWORD
 echo
-read -rsp "🔐 Contraseña para interfaz web: " WG_ADMIN_PASSWORD
+read -p "🔐 Pega el PASSWORD_HASH generado para la interfaz web: " PASSWORD_HASH
 echo
 
 # Configuración de red
@@ -61,11 +61,11 @@ fi
 echo "🔐 Configurando contraseña root..."
 pct exec "$CT_ID" -- bash -c "echo 'root:$ROOT_PASSWORD' | chpasswd"
 
-# Instalar Docker y herramientas
-echo "🐳 Instalando Docker y dependencias..."
+# Instalar Docker
+echo "🐳 Instalando Docker..."
 pct exec "$CT_ID" -- bash -c '
 apt-get -qq update >/dev/null
-apt-get -qq install -y ca-certificates curl gnupg lsb-release apache2-utils >/dev/null
+apt-get -qq install -y ca-certificates curl gnupg lsb-release >/dev/null
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
@@ -73,11 +73,7 @@ apt-get -qq update >/dev/null
 apt-get -qq install -y docker-ce docker-ce-cli containerd.io >/dev/null
 '
 
-# Generar PASSWORD_HASH escapando correctamente los signos de dólar
-echo "🔐 Generando hash seguro con htpasswd..."
-PASSWORD_HASH=$(pct exec "$CT_ID" -- htpasswd -nbBC 12 admin "$WG_ADMIN_PASSWORD" | cut -d: -f2 | sed 's/\$/\$\$/g')
-
-# Crear docker-compose y .env
+# Crear .env y docker-compose
 echo "📦 Configurando WG-Easy dentro del contenedor..."
 pct exec "$CT_ID" -- bash -c "
 mkdir -p /opt/wg-easy
@@ -122,9 +118,8 @@ echo -e "\n=== DATOS DE ACCESO ==="
 echo -e "🆔 LXC ID: $CT_ID"
 echo -e "💻 Acceso: pct enter $CT_ID"
 echo -e "🌐 IP interna: $CT_IP_ONLY"
-echo -e "🔐 Contraseña root: la que ingresaste"
 echo -e "📡 Puerto WireGuard: $WG_PORT/udp"
 echo -e "🌍 Web UI local: http://$CT_IP_ONLY:$WG_ADMIN_PORT"
 echo -e "🌐 Web UI pública: http://$WG_HOST:$WG_ADMIN_PORT"
 echo -e "👤 Usuario web: admin"
-echo -e "🔑 Contraseña web: la que ingresaste"
+echo -e "🔑 Contraseña web: la que generaste y pegaste (hash)"
