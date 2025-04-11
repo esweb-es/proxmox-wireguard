@@ -8,12 +8,12 @@ if ! command -v pct &> /dev/null; then
 fi
 
 # Solicitar configuración
-read -p "🌐 Ingresa la IP local para el contenedor (ej: 192.168.0.7/24): " CT_IP
+read -p "🌐 Ingresa la IP estática para el contenedor (ej: 192.168.0.7/24, o dejar vacío para DHCP): " CT_IP
 read -p "🚪 Puerto para WireGuard (por defecto 51820): " WG_PORT
 WG_PORT=${WG_PORT:-51820}
 read -p "🖥️ Puerto para interfaz web (por defecto 51821): " WG_ADMIN_PORT
 WG_ADMIN_PORT=${WG_ADMIN_PORT:-51821}
-read -p "🌍 Ingresa el dominio o IP pública para WG_HOST: " WG_HOST
+read -p "🌍 Ingresa la IP pública o dominio para WG_HOST: " WG_HOST
 read -rsp "🔐 Contraseña ROOT del contenedor: " ROOT_PASSWORD
 echo
 read -rsp "🔐 Contraseña para la interfaz WEB de WG-Easy: " WG_ADMIN_PASSWORD
@@ -82,39 +82,29 @@ mkdir -p /opt/wg-easy
 cat > /opt/wg-easy/docker-compose.yml <<EOF
 services:
   wg-easy:
-    image: ghcr.io/wg-easy/wg-easy:15
+    environment:
+      - WG_HOST=$WG_HOST
+      - PASSWORD=$WG_ADMIN_PASSWORD
+      - WG_PORT=$WG_PORT
+      - WG_ADMIN_PORT=$WG_ADMIN_PORT
+      - WG_DEFAULT_ADDRESS=10.8.0.x
+      - WG_DEFAULT_DNS=1.1.1.1,8.8.8.8
+      - LANG=es
+    image: weejewel/wg-easy
     container_name: wg-easy
-    networks:
-      wg:
-        ipv4_address: 10.42.42.42
-        ipv6_address: fdcc:ad94:bacf:61a3::2a
     volumes:
-      - etc_wireguard:/etc/wireguard
-      - /lib/modules:/lib/modules:ro
+      - ./data:/etc/wireguard
     ports:
-      - "$WG_PORT:$WG_PORT/udp"
-      - "$WG_ADMIN_PORT:$WG_ADMIN_PORT/tcp"
+      - '$WG_PORT:$WG_PORT/udp'
+      - '$WG_ADMIN_PORT:$WG_ADMIN_PORT/tcp'
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
-      - SYS_MODULE
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
-      - net.ipv6.conf.all.disable_ipv6=0
-      - net.ipv6.conf.all.forwarding=1
-      - net.ipv6.conf.default.forwarding=1
-networks:
-  wg:
-    driver: bridge
-    enable_ipv6: false
-    ipam:
-      driver: default
-      config:
-        - subnet: 10.42.42.0/24
-        - subnet: fdcc:ad94:bacf:61a3::/64
 EOF
-cd /opt/wg-easy && docker-compose up -d
+cd /opt/wg-easy && docker compose up -d
 "
 
 # Mostrar resumen
