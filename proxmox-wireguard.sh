@@ -129,13 +129,16 @@ password = sys.argv[1]
 # Generar el hash bcrypt
 bcrypt_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
+# Escapar los caracteres $ duplicándolos para el archivo .env
+escaped_hash = bcrypt_hash.replace('$', '$$')
+
 # Crear el directorio para WG-Easy
 os.makedirs('/opt/wg-easy', exist_ok=True)
 
-# Crear el archivo .env con el hash generado
+# Crear el archivo .env con el hash escapado
 with open('/opt/wg-easy/.env', 'w') as f:
     f.write(f'''WG_HOST={sys.argv[2]}
-PASSWORD_HASH={bcrypt_hash}
+PASSWORD_HASH={escaped_hash}
 WG_PORT=51820
 WG_ADMIN_PORT=51821
 WG_DEFAULT_ADDRESS=10.8.0.x
