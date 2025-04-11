@@ -51,7 +51,7 @@ if [[ ! "$CONFIRMAR" =~ ^[Ss]$ ]]; then
     exit 0
 fi
 
-# Crear contenedor
+# Crear contenedor con configuración de locale
 echo -e "\n${VERDE}🛠️ Creando contenedor LXC ID $CT_ID...${NC}"
 pct create "$CT_ID" local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
   --hostname "$CT_NAME" \
@@ -83,33 +83,52 @@ fi
 echo -e "${VERDE}🔐 Configurando acceso root...${NC}"
 pct exec "$CT_ID" -- bash -c "echo 'root:$ROOT_PASSWORD' | chpasswd"
 
-# Instalar Docker
+# Configurar locale correctamente antes de cualquier otra operación
+echo -e "${VERDE}🌍 Configurando locale...${NC}"
+pct exec "$CT_ID" -- bash -c '
+export DEBIAN_FRONTEND=noninteractive
+apt-get -qq update >/dev/null 2>&1
+apt-get -qq install -y locales >/dev/null 2>&1
+echo "en_US.UTF-8 UTF-8" > /etc/locale.gen
+echo "es_ES.UTF-8 UTF-8" >> /etc/locale.gen
+locale-gen >/dev/null 2>&1
+echo "export LANG=es_ES.UTF-8" > /etc/profile.d/locale.sh
+echo "export LC_ALL=es_ES.UTF-8" >> /etc/profile.d/locale.sh
+chmod +x /etc/profile.d/locale.sh
+echo "LANG=es_ES.UTF-8" > /etc/default/locale
+echo "LC_ALL=es_ES.UTF-8" >> /etc/default/locale
+'
+
+# Instalar Docker con configuración de locale
 echo -e "${VERDE}🐳 Instalando Docker...${NC}"
 pct exec "$CT_ID" -- bash -c '
-apt-get -qq update >/dev/null
-apt-get -qq install -y ca-certificates curl gnupg lsb-release >/dev/null
+source /etc/profile.d/locale.sh
+export DEBIAN_FRONTEND=noninteractive
+apt-get -qq update >/dev/null 2>&1
+apt-get -qq install -y ca-certificates curl gnupg lsb-release >/dev/null 2>&1
 install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
-apt-get -qq update >/dev/null
-apt-get -qq install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
+apt-get -qq update >/dev/null 2>&1
+apt-get -qq install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null 2>&1
 '
 
-# Instalar Node.js y generar hash bcrypt
+# Generar hash bcrypt usando Python en lugar de Node.js
 echo -e "${VERDE}🔑 Generando hash bcrypt para la contraseña...${NC}"
-pct exec "$CT_ID" -- bash -c "
-apt-get -qq update >/dev/null
-apt-get -qq install -y nodejs npm >/dev/null
-npm install -g bcryptjs >/dev/null 2>&1
-"
+pct exec "$CT_ID" -- bash -c '
+source /etc/profile.d/locale.sh
+export DEBIAN_FRONTEND=noninteractive
+apt-get -qq install -y python3-pip python3-bcrypt >/dev/null 2>&1
+'
 
-# Generar el hash bcrypt y guardarlo en una variable
-BCRYPT_HASH=$(pct exec "$CT_ID" -- node -e "console.log(require('bcryptjs').hashSync('$WGEASY_PASSWORD', 10))")
+# Generar el hash bcrypt usando Python
+BCRYPT_HASH=$(pct exec "$CT_ID" -- bash -c "source /etc/profile.d/locale.sh && python3 -c \"import bcrypt; print(bcrypt.hashpw('$WGEASY_PASSWORD'.encode(), bcrypt.gensalt()).decode())\"")
 echo -e "${VERDE}✅ Hash bcrypt generado correctamente${NC}"
 
 # Crear entorno WG-Easy
 echo -e "${VERDE}📦 Configurando WG-Easy...${NC}"
 pct exec "$CT_ID" -- bash -c "
+source /etc/profile.d/locale.sh
 mkdir -p /opt/wg-easy
 cat > /opt/wg-easy/.env <<EOF
 WG_HOST=$WG_HOST
@@ -146,15 +165,27 @@ cd /opt/wg-easy && docker compose up -d
 
 # Configurar firewall básico
 echo -e "${VERDE}🔒 Configurando firewall básico...${NC}"
-pct exec "$CT_ID" -- bash -c "
-apt-get -qq install -y ufw >/dev/null
+pct exec "$CT_ID" -- bash -c '
+source /etc/profile.d/locale.sh
+export DEBIAN_FRONTEND=noninteractive
+apt-get -qq install -y ufw >/dev/null 2>&1
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow 22/tcp
 ufw allow 51820/udp
 ufw allow 51821/tcp
-echo 'y' | ufw enable
-"
+echo "y" | ufw enable
+'
+
+# Limpiar paquetes innecesarios
+echo -e "${VERDE}🧹 Limpiando paquetes innecesarios...${NC}"
+pct exec "$CT_ID" -- bash -c '
+source /etc/profile.d/locale.sh
+export DEBIAN_FRONTEND=noninteractive
+apt-get -qq remove -y python3-pip python3-bcrypt >/dev/null 2>&1
+apt-get -qq autoremove -y >/dev/null 2>&1
+apt-get -qq clean >/dev/null 2>&1
+'
 
 # Resumen
 echo -e "\n${VERDE}✅ Instalación completada${NC}"
