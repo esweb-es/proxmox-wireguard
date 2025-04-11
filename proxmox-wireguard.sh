@@ -113,35 +113,39 @@ apt-get -qq update >/dev/null 2>&1
 apt-get -qq install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null 2>&1
 '
 
-# Generar hash bcrypt usando Python en lugar de Node.js
-echo -e "${VERDE}🔑 Generando hash bcrypt para la contraseña...${NC}"
-pct exec "$CT_ID" -- bash -c '
-source /etc/profile.d/locale.sh
-export DEBIAN_FRONTEND=noninteractive
-apt-get -qq install -y python3-pip python3-bcrypt >/dev/null 2>&1
-'
-
-# Generar el hash bcrypt usando Python
-BCRYPT_HASH=$(pct exec "$CT_ID" -- bash -c "source /etc/profile.d/locale.sh && python3 -c \"import bcrypt; print(bcrypt.hashpw('$WGEASY_PASSWORD'.encode(), bcrypt.gensalt()).decode())\"")
-echo -e "${VERDE}✅ Hash bcrypt generado correctamente${NC}"
-
-# Crear entorno WG-Easy
+# Crear entorno WG-Easy con script Python para generar el hash
 echo -e "${VERDE}📦 Configurando WG-Easy...${NC}"
-pct exec "$CT_ID" -- bash -c "
-source /etc/profile.d/locale.sh
-mkdir -p /opt/wg-easy
-cat > /opt/wg-easy/.env <<EOF
-WG_HOST=$WG_HOST
-PASSWORD_HASH=$BCRYPT_HASH
+
+# Crear un script Python en el contenedor para generar el hash y configurar WG-Easy
+pct exec "$CT_ID" -- bash -c "cat > /root/setup-wg-easy.py << 'EOF'
+#!/usr/bin/env python3
+import bcrypt
+import os
+import sys
+
+# Obtener la contraseña como argumento
+password = sys.argv[1]
+
+# Generar el hash bcrypt
+bcrypt_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+# Crear el directorio para WG-Easy
+os.makedirs('/opt/wg-easy', exist_ok=True)
+
+# Crear el archivo .env con el hash generado
+with open('/opt/wg-easy/.env', 'w') as f:
+    f.write(f'''WG_HOST={sys.argv[2]}
+PASSWORD_HASH={bcrypt_hash}
 WG_PORT=51820
 WG_ADMIN_PORT=51821
 WG_DEFAULT_ADDRESS=10.8.0.x
 WG_DEFAULT_DNS=1.1.1.1,8.8.8.8
 LANG=es
-EOF
+''')
 
-cat > /opt/wg-easy/docker-compose.yml <<EOF
-services:
+# Crear el archivo docker-compose.yml
+with open('/opt/wg-easy/docker-compose.yml', 'w') as f:
+    f.write('''services:
   wg-easy:
     image: ghcr.io/wg-easy/wg-easy
     container_name: wg-easy
@@ -158,8 +162,18 @@ services:
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
-EOF
+''')
 
+print('Configuración completada con éxito')
+EOF"
+
+# Instalar dependencias de Python y ejecutar el script
+pct exec "$CT_ID" -- bash -c "
+source /etc/profile.d/locale.sh
+export DEBIAN_FRONTEND=noninteractive
+apt-get -qq install -y python3-pip python3-bcrypt >/dev/null 2>&1
+chmod +x /root/setup-wg-easy.py
+python3 /root/setup-wg-easy.py '$WGEASY_PASSWORD' '$WG_HOST'
 cd /opt/wg-easy && docker compose up -d
 "
 
@@ -177,11 +191,12 @@ ufw allow 51821/tcp
 echo "y" | ufw enable
 '
 
-# Limpiar paquetes innecesarios
+# Limpiar paquetes innecesarios y archivos temporales
 echo -e "${VERDE}🧹 Limpiando paquetes innecesarios...${NC}"
 pct exec "$CT_ID" -- bash -c '
 source /etc/profile.d/locale.sh
 export DEBIAN_FRONTEND=noninteractive
+rm -f /root/setup-wg-easy.py
 apt-get -qq remove -y python3-pip python3-bcrypt >/dev/null 2>&1
 apt-get -qq autoremove -y >/dev/null 2>&1
 apt-get -qq clean >/dev/null 2>&1
