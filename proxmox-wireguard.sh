@@ -17,9 +17,22 @@ fi
 echo -e "${AZUL}=== Instalador de WireGuard Easy en Proxmox ===${NC}"
 echo -e "${AMARILLO}Este script creará un contenedor LXC con WG-Easy${NC}\n"
 
-# Solicitar configuración
-read -p "🌐 IP estática (ej: 192.168.1.100/24) o dejar vacío para DHCP: " CT_IP
+# Solicitar configuración con validaciones
+while true; do
+    read -p "🌐 IP estática (ej: 192.168.1.100/24) o dejar vacío para DHCP: " CT_IP
+    if [[ -z "$CT_IP" || "$CT_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
+        break
+    else
+        echo -e "${ROJO}❌ Formato de IP inválido. Inténtalo de nuevo.${NC}"
+    fi
+done
+
 read -p "🌍 Dominio o IP pública para WG_HOST: " WG_HOST
+if [[ -z "$WG_HOST" ]]; then
+    echo -e "${ROJO}❌ Debes ingresar un dominio o IP pública.${NC}"
+    exit 1
+fi
+
 read -rsp "🔐 Contraseña ROOT del contenedor: " ROOT_PASSWORD
 echo
 read -rsp "🔐 Contraseña para la interfaz web de WG-Easy: " WGEASY_PASSWORD
