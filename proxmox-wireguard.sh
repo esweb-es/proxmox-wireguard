@@ -1,38 +1,39 @@
 #!/bin/bash
 set -euo pipefail
 
-# Colores
+# Colores para mensajes
 VERDE='\033[0;32m'
 ROJO='\033[0;31m'
 AMARILLO='\033[0;33m'
 AZUL='\033[0;34m'
-NC='\033[0m' # Sin color
+NC='\033[0m'
 
-# Verificar entorno Proxmox
+# Verificar entorno
 if ! command -v pct &> /dev/null; then
     echo -e "${ROJO}❌ Este script debe ejecutarse en un nodo Proxmox${NC}"
     exit 1
 fi
 
-echo -e "${AZUL}=== Instalador de WireGuard Easy en Proxmox ===${NC}"
+echo -e "${AZUL}=== Instalador de WG-Easy en LXC (Proxmox) ===${NC}"
+echo
 
-# Pedir configuración
+# Configuración del usuario
 read -p "🌐 IP estática (ej: 192.168.1.100/24) o dejar vacío para DHCP: " CT_IP
-read -p "🌍 Dominio o IP pública (WG_HOST): " WG_HOST
+read -p "🌍 Dominio o IP pública para WG_HOST: " WG_HOST
 read -rsp "🔐 Contraseña ROOT del contenedor: " ROOT_PASSWORD
 echo
-read -p "🔐 Pega el hash BCRYPT (empieza con \$2a\$): " PASSWORD_HASH
+read -p "🔐 Pega el hash BCRYPT generado (comienza con \$2a\$): " BCRYPT_HASH
+echo
 
-# Escapar signos $
-ESCAPED_HASH=$(echo "$PASSWORD_HASH" | sed 's/\$/\$\$/g')
+# Escapar $ para uso en archivo .env
+ESCAPED_HASH=$(echo "$BCRYPT_HASH" | sed 's/\$/\$\$/g')
 
-# Preparar contenedor
+# Generar configuración
 CT_ID=$(pvesh get /cluster/nextid)
 CT_NAME="wg-easy"
-
 if [[ -z "$CT_IP" ]]; then
   NET_CONFIG="name=eth0,bridge=vmbr0,ip=dhcp"
-  CT_IP_SHOW="(por DHCP)"
+  CT_IP_SHOW="(DHCP)"
 else
   GATEWAY=$(echo "$CT_IP" | cut -d'/' -f1 | awk -F. '{print $1"."$2"."$3".1"}')
   NET_CONFIG="name=eth0,bridge=vmbr0,ip=$CT_IP,gw=$GATEWAY"
@@ -40,50 +41,40 @@ else
 fi
 
 # Confirmación
-echo -e "\n${AMARILLO}=== Resumen ===${NC}"
-echo -e "ID: ${AZUL}$CT_ID${NC}"
-echo -e "Nombre: ${AZUL}$CT_NAME${NC}"
-echo -e "Red: ${AZUL}$NET_CONFIG${NC}"
-echo -e "Host público: ${AZUL}$WG_HOST${NC}"
-read -p "¿Continuar? (s/n): " CONFIRMAR
-[[ "$CONFIRMAR" =~ ^[Ss]$ ]] || { echo -e "${ROJO}Cancelado.${NC}"; exit 1; }
+echo -e "${AMARILLO}Creando LXC $CT_NAME con ID $CT_ID en $CT_IP_SHOW (${WG_HOST})...${NC}"
 
 # Crear contenedor
-echo -e "${VERDE}🛠️ Creando contenedor...${NC}"
 pct create "$CT_ID" local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
   --hostname "$CT_NAME" \
-  --memory 512 --cores 1 \
-  --storage local --rootfs local:3 \
+  --memory 512 \
+  --cores 1 \
+  --storage local \
+  --rootfs local:3 \
   --net0 "$NET_CONFIG" \
   --unprivileged 0 \
   --features nesting=1 >/dev/null
 
-# Iniciar contenedor
-echo -e "${VERDE}🚀 Iniciando contenedor...${NC}"
 pct start "$CT_ID" >/dev/null
 sleep 10
 
-# Detectar IP real si DHCP
-[[ "$CT_IP_SHOW" == "(por DHCP)" ]] && CT_IP_SHOW=$(pct exec "$CT_ID" -- hostname -I | awk '{print $1}')
+# Detectar IP si es DHCP
+if [[ "$CT_IP_SHOW" == "(DHCP)" ]]; then
+  CT_IP_SHOW=$(pct exec "$CT_ID" -- hostname -I | awk '{print $1}')
+fi
 
-# Configurar acceso root
-echo -e "${VERDE}🔐 Configurando root...${NC}"
+# Establecer root password
 pct exec "$CT_ID" -- bash -c "echo 'root:$ROOT_PASSWORD' | chpasswd"
 
 # Instalar Docker
-echo -e "${VERDE}🐳 Instalando Docker...${NC}"
-pct exec "$CT_ID" -- bash -c '
-apt-get -qq update >/dev/null
-apt-get -qq install -y ca-certificates curl gnupg lsb-release >/dev/null
+pct exec "$CT_ID" -- bash -c "
+apt update -qq && apt install -y curl ca-certificates gnupg lsb-release >/dev/null
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
-apt-get -qq update >/dev/null
-apt-get -qq install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
-'
+echo 'deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable' > /etc/apt/sources.list.d/docker.list
+apt update -qq && apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
+"
 
-# Crear config WG-Easy
-echo -e "${VERDE}📦 Configurando WG-Easy...${NC}"
+# Crear config
 pct exec "$CT_ID" -- bash -c "
 mkdir -p /opt/wg-easy
 cat > /opt/wg-easy/.env <<EOF
@@ -119,13 +110,10 @@ EOF
 cd /opt/wg-easy && docker compose up -d
 "
 
-# ✅ Final
-echo -e "\n${VERDE}✅ Instalación completada${NC}"
-echo -e "${AZUL}=== Acceso ===${NC}"
-echo -e "Contenedor ID: ${VERDE}$CT_ID${NC}"
-echo -e "Acceso: pct enter $CT_ID"
-echo -e "🌐 Web local: http://$CT_IP_SHOW:51821"
-echo -e "🌍 Web pública: http://$WG_HOST:51821"
-echo -e "🔐 Usuario: admin"
-echo -e "🔑 Contraseña: la que hasheaste y pegaste"
-echo -e "📡 Puerto WireGuard: 51820/udp"
+# Resultado
+echo -e "\n${VERDE}✅ WG-Easy instalado correctamente en el contenedor LXC ID ${CT_ID}${NC}"
+echo -e "🌐 Web: http://${CT_IP_SHOW}:51821"
+echo -e "🌍 Web externa: http://${WG_HOST}:51821"
+echo -e "👤 Usuario: admin"
+echo -e "🔐 Contraseña: la correspondiente al hash BCRYPT que pegaste"
+echo -e "\n📡 Redirige el puerto UDP 51820 al contenedor (${CT_IP_SHOW})"
