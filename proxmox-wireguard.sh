@@ -8,18 +8,18 @@ if ! command -v pct &> /dev/null; then
 fi
 
 # Solicitar configuración
-read -p "🌐 Ingresa la IP estática para el contenedor (ej: 192.168.0.7/24, o dejar vacío para DHCP): " CT_IP
-read -p "🌍 Ingresa el dominio o IP pública para WG_HOST: " WG_HOST
-read -p "🚪 Puerto para WireGuard (por defecto 51820): " WG_PORT
+read -p "🌐 IP estática para el contenedor (192.168.0.7/24, o vacío para DHCP): " CT_IP
+read -p "🌍 Dominio o IP pública (WG_HOST): " WG_HOST
+read -p "🚪 Puerto WireGuard (por defecto 51820): " WG_PORT
 WG_PORT=${WG_PORT:-51820}
-read -p "🖥️ Puerto para interfaz web (por defecto 51821): " WG_ADMIN_PORT
+read -p "🖥️ Puerto interfaz web (por defecto 51821): " WG_ADMIN_PORT
 WG_ADMIN_PORT=${WG_ADMIN_PORT:-51821}
 read -rsp "🔐 Contraseña ROOT del contenedor: " ROOT_PASSWORD
 echo
-read -rsp "🔐 Contraseña para la interfaz WEB de WG-Easy: " WG_ADMIN_PASSWORD
+read -rsp "🔐 Contraseña para la web (WG-Easy): " WG_ADMIN_PASSWORD
 echo
 
-# Configuración adicional
+# Configuración
 CT_ID=$(pvesh get /cluster/nextid)
 CT_NAME="Wireguard"
 
@@ -35,72 +35,70 @@ fi
 
 # Crear contenedor
 echo "🛠️ Creando contenedor LXC (ID: $CT_ID)..."
-if ! pct create "$CT_ID" local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
-  --hostname "$CT_NAME" \
-  --memory 512 \
-  --cores 1 \
-  --storage local \
-  --rootfs local:3 \
-  --net0 "$NET_CONFIG" \
-  --unprivileged 0 \
-  --features nesting=1 >/dev/null; then
-    echo "❌ Error al crear el contenedor. Verifica plantilla, red y almacenamiento."
-    exit 1
-fi
+pct create "$CT_ID" local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
+  --hostname "$CT_NAME" --memory 512 --cores 1 \
+  --storage local --rootfs local:3 \
+  --net0 "$NET_CONFIG" --unprivileged 0 \
+  --features nesting=1 >/dev/null
 
 # Iniciar contenedor
 echo "🚀 Iniciando contenedor..."
 pct start "$CT_ID" >/dev/null
 sleep 10
 
-# Detectar IP real si es DHCP
+# Detectar IP si es DHCP
 if [[ "$CT_IP_ONLY" == "(por DHCP)" ]]; then
   CT_IP_ONLY=$(pct exec "$CT_ID" -- hostname -I | awk '{print $1}')
 fi
 
-# Configurar contraseña root
-echo "🔐 Configurando acceso root..."
+# Configurar root
+echo "🔐 Configurando root..."
 pct exec "$CT_ID" -- bash -c "echo 'root:$ROOT_PASSWORD' | chpasswd"
 
-# Instalar Docker y herramientas para hash
-echo "🐳 Instalando Docker y apache2-utils..."
+# Instalar Docker y herramientas
+echo "🐳 Instalando Docker..."
 pct exec "$CT_ID" -- bash -c '
 apt-get -qq update >/dev/null
 apt-get -qq install -y ca-certificates curl gnupg apache2-utils lsb-release >/dev/null
-install -m 0755 -d /etc/apt/keyrings
+install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
 apt-get -qq update >/dev/null
 apt-get -qq install -y docker-ce docker-ce-cli containerd.io >/dev/null
-echo "LANG=en_US.UTF-8" > /etc/default/locale'
+echo "LANG=en_US.UTF-8" > /etc/default/locale
+'
 
-# Generar PASSWORD_HASH y escapar \$
-echo "🔐 Generando hash de la contraseña para WG-Easy..."
-PASSWORD_HASH_RAW=$(pct exec "$CT_ID" -- htpasswd -nbBC 12 admin "$WG_ADMIN_PASSWORD" | cut -d: -f2)
-PASSWORD_HASH=$(echo "$PASSWORD_HASH_RAW" | sed 's/\$/\$\$/g')
+# Generar hash
+echo "🔐 Generando hash de contraseña..."
+HASH=$(pct exec "$CT_ID" -- htpasswd -nbBC 12 admin "$WG_ADMIN_PASSWORD" | cut -d: -f2)
+HASH_ESCAPED=$(echo "$HASH" | sed 's/\$/\$\$/g')  # doble $$ para .env
 
-# Configurar WG-Easy
-echo "🔧 Configurando Wireguard..."
+# Crear archivos dentro del contenedor
+echo "🔧 Configurando WG-Easy..."
 pct exec "$CT_ID" -- bash -c "
 mkdir -p /opt/wg-easy
-cat > /opt/wg-easy/docker-compose.yml <<EOF
+cat > /opt/wg-easy/.env <<EOF
+WG_HOST=$WG_HOST
+PASSWORD_HASH=$HASH_ESCAPED
+WG_PORT=$WG_PORT
+WG_ADMIN_PORT=$WG_ADMIN_PORT
+WG_DEFAULT_ADDRESS=10.8.0.x
+WG_DEFAULT_DNS=1.1.1.1,8.8.8.8
+LANG=es
+EOF
+
+cat > /opt/wg-easy/docker-compose.yml <<'EOF'
 services:
   wg-easy:
-    environment:
-      - WG_HOST=$WG_HOST
-      - PASSWORD_HASH=$PASSWORD_HASH
-      - WG_PORT=$WG_PORT
-      - WG_ADMIN_PORT=$WG_ADMIN_PORT
-      - WG_DEFAULT_ADDRESS=10.8.0.x
-      - WG_DEFAULT_DNS=1.1.1.1,8.8.8.8
-      - LANG=es
     image: ghcr.io/wg-easy/wg-easy
     container_name: wg-easy
+    env_file:
+      - .env
     volumes:
       - ./data:/etc/wireguard
     ports:
-      - '$WG_PORT:$WG_PORT/udp'
-      - '$WG_ADMIN_PORT:$WG_ADMIN_PORT/tcp'
+      - "\${WG_PORT}:\${WG_PORT}/udp"
+      - "\${WG_ADMIN_PORT}:\${WG_ADMIN_PORT}/tcp"
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
@@ -108,18 +106,17 @@ services:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
 EOF
+
 cd /opt/wg-easy && docker compose up -d
 "
 
-# Mostrar resumen
+# Info final
 echo -e "\n✅ Instalación completada"
-echo -e "\n=== DATOS DE ACCESO ==="
-echo -e "🆔 Contenedor LXC ID: $CT_ID"
+echo -e "\n🆔 Contenedor LXC ID: $CT_ID"
 echo -e "💻 Acceso: pct enter $CT_ID"
-echo -e "🔐 Usuario root / contraseña: La que ingresaste"
 echo -e "\n🌐 Interfaz web: http://$CT_IP_ONLY:$WG_ADMIN_PORT"
 echo -e "🌍 Desde internet: http://$WG_HOST:$WG_ADMIN_PORT"
 echo -e "👤 Usuario: admin"
-echo -e "🔐 Contraseña: La que ingresaste"
+echo -e "🔐 Contraseña: la que ingresaste"
 echo -e "\n📡 Puerto WireGuard: $WG_PORT/udp"
 echo -e "🚨 Redirige ese puerto en tu router hacia: $CT_IP_ONLY"
