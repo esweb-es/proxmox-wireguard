@@ -8,6 +8,7 @@ if ! command -v pct &> /dev/null; then
 fi
 
 # Solicitar configuración
+read -p "🌍 Ingresa el dominio o IP pública para WG_HOST: " WG_HOST
 read -p "🌐 Ingresa la IP estática para el contenedor (ej: 192.168.0.7/24, o dejar vacío para DHCP): " CT_IP
 read -p "🚪 Puerto para WireGuard (por defecto 51820): " WG_PORT
 WG_PORT=${WG_PORT:-51820}
@@ -82,7 +83,7 @@ cat > /opt/wg-easy/docker-compose.yml <<EOF
 services:
   wg-easy:
     environment:
-      - WG_HOST=$CT_IP_ONLY
+      - WG_HOST=$WG_HOST
       - PASSWORD=$WG_ADMIN_PASSWORD
       - WG_PORT=$WG_PORT
       - WG_ADMIN_PORT=$WG_ADMIN_PORT
