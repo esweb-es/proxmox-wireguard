@@ -1,11 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# Configurar locales para evitar advertencias de Perl
-export LANG="es_ES.UTF-8"
-export LANGUAGE="es_ES"
-export LC_ALL="es_ES.UTF-8"
-
 # Verificar si estamos en Proxmox
 if ! command -v pct &> /dev/null; then
     echo "❌ Este script debe ejecutarse en un nodo Proxmox"
@@ -77,7 +72,7 @@ curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
 apt-get -qq update >/dev/null
 apt-get -qq install -y docker-ce docker-ce-cli containerd.io >/dev/null
-echo "LANG=en_US.UTF-8" > /etc/default/locale
+echo "LANG=es_ES.UTF-8" > /etc/default/locale
 '
 
 # Configurar WG-Easy
