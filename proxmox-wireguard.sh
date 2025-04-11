@@ -102,8 +102,8 @@ services:
     volumes:
       - ./data:/etc/wireguard
     ports:
-      - \${WG_PORT}:\${WG_PORT}/udp
-      - \${WG_ADMIN_PORT}:\${WG_ADMIN_PORT}/tcp
+      - $WG_PORT:$WG_PORT/udp
+      - $WG_ADMIN_PORT:$WG_ADMIN_PORT/tcp
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
