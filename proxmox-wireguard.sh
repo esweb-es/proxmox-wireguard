@@ -72,7 +72,7 @@ curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
 apt-get -qq update >/dev/null
 apt-get -qq install -y docker-ce docker-ce-cli containerd.io >/dev/null
-echo "LANG=es_ES.UTF-8" > /etc/default/locale
+echo "LANG=en_US.UTF-8" > /etc/default/locale
 '
 
 # Configurar WG-Easy
@@ -104,7 +104,7 @@ services:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
 EOF
-cd /opt/wg-easy && docker-compose up -d
+cd /opt/wg-easy && docker compose up -d
 "
 
 # Mostrar resumen
